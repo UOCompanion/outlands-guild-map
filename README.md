@@ -83,7 +83,7 @@ You need these for the `DISCORD_AUTH_RULES` setting.
 
 ```bash
 git clone <this-repo-url>
-cd Outlands_Map_Manager
+cd outlands-guild-map
 npm install
 cp wrangler.toml.example wrangler.toml
 ```
