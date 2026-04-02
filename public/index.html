@@ -1,0 +1,2130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guild Map Manager</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+
+    <style>
+        /* Base styles - dark theme */
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+        }
+
+        .container {
+            position: relative;
+            height: 100vh;
+        }
+
+        /* Sidebar styles */
+        .sidebar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 300px;
+            height: 100%;
+            background: rgba(45, 45, 45, 0.95);
+            padding: 15px;
+            border-right: 2px solid #444;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar.hidden {
+            transform: translateX(-100%);
+        }
+
+        .show-sidebar-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1001;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #ffd700;
+            color: #ffd700;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            display: none;
+        }
+
+        .container.sidebar-hidden .show-sidebar-btn {
+            display: block;
+        }
+
+        /* Header section */
+        .header-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #444;
+        }
+
+        .header-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .header-section h2 {
+            margin: 0;
+            color: #ffd700;
+            font-size: 20px;
+        }
+
+        /* User info section */
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #3d3d3d;
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 2px solid #ffd700;
+        }
+
+        .user-details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .user-name {
+            font-size: 14px;
+            font-weight: bold;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .user-tag {
+            font-size: 11px;
+            color: #999;
+        }
+
+        .logout-btn {
+            background: #555;
+            border: 1px solid #666;
+            color: #ccc;
+            border-radius: 4px;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .logout-btn:hover {
+            background: #c62828;
+            border-color: #f44336;
+            color: #fff;
+        }
+
+        .toggle-btn {
+            background: #555;
+            border: 1px solid #777;
+            color: #ffd700;
+            border-radius: 4px;
+            padding: 5px 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .toggle-btn:hover {
+            background: #666;
+            border-color: #ffd700;
+        }
+
+        /* Layer controls */
+        .layer-control {
+            margin-bottom: 20px;
+        }
+
+        .layer-control-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .layer-control h3 {
+            margin: 0;
+            color: #ffd700;
+            font-size: 16px;
+        }
+
+        .manage-layers-btn {
+            background: #3a3a3a;
+            border: 1px solid #666;
+            color: #aaa;
+            border-radius: 4px;
+            padding: 3px 8px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s ease;
+        }
+
+        .manage-layers-btn:hover {
+            background: #4a4a4a;
+            border-color: #ffd700;
+            color: #ffd700;
+        }
+
+        .layer-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            padding: 8px;
+            background: #3d3d3d;
+            border-radius: 4px;
+        }
+
+        .layer-item input[type="checkbox"] {
+            margin-right: 10px;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .layer-item label {
+            cursor: pointer;
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .color-indicator {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            margin-left: 8px;
+            flex-shrink: 0;
+        }
+
+        /* Action buttons */
+        .actions-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #444;
+        }
+
+        .actions-section h3 {
+            margin: 0 0 10px 0;
+            color: #ffd700;
+            font-size: 16px;
+        }
+
+        .action-btn {
+            width: 100%;
+            padding: 10px 15px;
+            margin-bottom: 8px;
+            background: #4a4a4a;
+            border: 1px solid #666;
+            color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .action-btn:hover {
+            background: #5a5a5a;
+            border-color: #888;
+        }
+
+        .action-btn.primary {
+            background: #2e7d32;
+            border-color: #4caf50;
+        }
+
+        .action-btn.primary:hover {
+            background: #388e3c;
+        }
+
+        .action-btn.export {
+            background: #1565c0;
+            border-color: #2196f3;
+        }
+
+        .action-btn.export:hover {
+            background: #1976d2;
+        }
+
+        .action-btn.import {
+            background: #6a1b9a;
+            border-color: #9c27b0;
+        }
+
+        .action-btn.import:hover {
+            background: #7b1fa2;
+        }
+
+        /* Import modal specifics */
+        .import-drop-zone {
+            border: 2px dashed #555;
+            border-radius: 6px;
+            padding: 20px;
+            text-align: center;
+            color: #aaa;
+            font-size: 13px;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            margin-bottom: 4px;
+        }
+
+        .import-drop-zone.drag-over {
+            border-color: #ffd700;
+            background: rgba(255, 215, 0, 0.05);
+            color: #ffd700;
+        }
+
+        .import-drop-zone input[type="file"] {
+            display: none;
+        }
+
+        .import-preview {
+            margin-top: 10px;
+            padding: 8px;
+            background: #3d3d3d;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #ccc;
+            max-height: 80px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        /* Instructions section */
+        .instructions {
+            padding: 10px;
+            background: #3d3d3d;
+            border-radius: 4px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .instructions h4 {
+            margin: 0 0 8px 0;
+            color: #ffd700;
+            font-size: 14px;
+        }
+
+        .instructions p {
+            margin: 5px 0;
+            color: #ccc;
+        }
+
+        .instructions kbd {
+            background: #555;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        /* Map container */
+        #map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Hide default zoom controls */
+        .leaflet-control-zoom {
+            display: none;
+        }
+
+        /* Leaflet popup customization */
+        .leaflet-popup-content-wrapper {
+            background: rgba(30, 30, 30, 0.95);
+            border-radius: 6px;
+            border: 1px solid #555;
+        }
+
+        .leaflet-popup-content {
+            color: #fff;
+            margin: 10px 12px;
+            font-size: 14px;
+        }
+
+        .leaflet-popup-tip {
+            background: rgba(30, 30, 30, 0.95);
+            border: 1px solid #555;
+        }
+
+        /* Popup content styles */
+        .popup-content {
+            min-width: 180px;
+        }
+
+        .popup-content h4 {
+            margin: 0 0 8px 0;
+            color: #ffd700;
+            font-size: 16px;
+        }
+
+        .popup-content p {
+            margin: 4px 0;
+            color: #ccc;
+            font-size: 13px;
+        }
+
+        .popup-buttons {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .popup-btn {
+            flex: 1;
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        .popup-btn.edit {
+            background: #1565c0;
+            color: #fff;
+        }
+
+        .popup-btn.edit:hover {
+            background: #1976d2;
+        }
+
+        .popup-btn.delete {
+            background: #c62828;
+            color: #fff;
+        }
+
+        .popup-btn.delete:hover {
+            background: #d32f2f;
+        }
+
+        /* Modal styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: #2d2d2d;
+            border-radius: 8px;
+            padding: 20px;
+            width: 90%;
+            max-width: 400px;
+            border: 1px solid #555;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal h3 {
+            margin: 0 0 15px 0;
+            color: #ffd700;
+            font-size: 18px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ccc;
+            font-size: 14px;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            background: #3d3d3d;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .modal-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+        }
+
+        .modal-btn.cancel {
+            background: #555;
+            color: #fff;
+        }
+
+        .modal-btn.cancel:hover {
+            background: #666;
+        }
+
+        .modal-btn.save {
+            background: #2e7d32;
+            color: #fff;
+        }
+
+        .modal-btn.save:hover {
+            background: #388e3c;
+        }
+
+        /* Notification toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 6px;
+            z-index: 3000;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            border-left: 4px solid #4caf50;
+        }
+
+        .toast.error {
+            border-left: 4px solid #f44336;
+        }
+
+        /* Loading indicator */
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px 30px;
+            border-radius: 8px;
+            z-index: 3000;
+            display: none;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        /* POI marker styles */
+        .poi-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 10px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Right location list panel */
+        .location-list-panel {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 260px;
+            height: 100%;
+            background: rgba(45, 45, 45, 0.95);
+            border-left: 2px solid #444;
+            z-index: 1000;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.3);
+            transition: transform 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .location-list-panel.hidden {
+            transform: translateX(100%);
+        }
+
+        .location-list-panel.minimized .list-panel-body {
+            display: none;
+        }
+
+        .list-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            background: #2d2d2d;
+            border-bottom: 1px solid #555;
+            flex-shrink: 0;
+        }
+
+        .list-panel-header h3 {
+            margin: 0;
+            color: #ffd700;
+            font-size: 14px;
+        }
+
+        .list-panel-controls {
+            display: flex;
+            gap: 4px;
+        }
+
+        .list-ctrl-btn {
+            background: #555;
+            border: 1px solid #777;
+            color: #ccc;
+            border-radius: 3px;
+            padding: 2px 8px;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .list-ctrl-btn:hover {
+            background: #666;
+            color: #fff;
+        }
+
+        .list-panel-body {
+            flex: 1;
+            overflow: hidden;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-height: 0;
+        }
+
+        .location-search {
+            width: 100%;
+            padding: 6px 8px;
+            background: #3d3d3d;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+
+        .location-search:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+
+        #location-list-content {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 0;
+        }
+
+        .layer-group {
+            margin-bottom: 4px;
+        }
+
+        .layer-group-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 6px;
+            background: #3a3a3a;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+            color: #ddd;
+            user-select: none;
+        }
+
+        .layer-group-header:hover {
+            background: #454545;
+        }
+
+        .layer-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .group-count {
+            margin-left: auto;
+            color: #888;
+            font-size: 11px;
+            font-weight: normal;
+        }
+
+        .group-collapse-icon {
+            color: #888;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        .layer-group-items {
+            padding-left: 4px;
+        }
+
+        .location-list-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #bbb;
+            transition: background 0.12s ease;
+        }
+
+        .location-list-item:hover {
+            background: #4a4a4a;
+            color: #fff;
+        }
+
+        .item-name {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-edit-btn {
+            background: #1565c0;
+            border: none;
+            color: #fff;
+            border-radius: 3px;
+            padding: 2px 6px;
+            cursor: pointer;
+            font-size: 11px;
+            opacity: 0;
+            transition: opacity 0.12s ease;
+            flex-shrink: 0;
+        }
+
+        .location-list-item:hover .item-edit-btn {
+            opacity: 1;
+        }
+
+        .show-list-panel-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1001;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #ffd700;
+            color: #ffd700;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            display: none;
+        }
+
+        .container.list-panel-hidden .show-list-panel-btn {
+            display: block;
+        }
+
+        /* Layer Manager Modal */
+        .layer-manager-modal {
+            max-width: 500px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .layer-manager-list {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 12px;
+            min-height: 0;
+        }
+
+        .layer-manager-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            background: #3d3d3d;
+            border-radius: 4px;
+            margin-bottom: 6px;
+        }
+
+        .layer-manager-row input[type="text"] {
+            flex: 1;
+            padding: 6px 8px;
+            background: #2d2d2d;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 13px;
+            min-width: 0;
+        }
+
+        .layer-manager-row input[type="text"]:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+
+        .layer-icon-input {
+            flex: 0 0 90px !important;
+            width: 90px;
+        }
+
+        .layer-color-input {
+            width: 38px;
+            height: 30px;
+            padding: 2px;
+            background: #2d2d2d;
+            border: 1px solid #555;
+            border-radius: 4px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .layer-delete-btn {
+            background: #5a1a1a;
+            border: 1px solid #8b0000;
+            color: #ff6b6b;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 13px;
+            flex-shrink: 0;
+            transition: all 0.2s ease;
+        }
+
+        .layer-delete-btn:hover {
+            background: #c62828;
+            border-color: #f44336;
+            color: #fff;
+        }
+
+        .add-layer-btn {
+            width: 100%;
+            padding: 8px;
+            background: #2d4a2d;
+            border: 1px dashed #4caf50;
+            color: #4caf50;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s ease;
+            margin-bottom: 8px;
+        }
+
+        .add-layer-btn:hover {
+            background: #2e7d32;
+            border-color: #81c784;
+            color: #fff;
+        }
+
+        .layer-manager-hint {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        /* View-only mode — hides all write controls */
+        .view-only-badge {
+            display: inline-block;
+            background: #3a3a1a;
+            border: 1px solid #888833;
+            color: #cccc55;
+            border-radius: 3px;
+            padding: 2px 7px;
+            font-size: 11px;
+            margin-top: 6px;
+        }
+
+        body.view-only .editor-only {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="app-container">
+        <!-- Show sidebar button (visible when hidden) -->
+        <button id="show-sidebar" class="show-sidebar-btn">Guild Map</button>
+
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="header-section">
+                <div class="header-controls">
+                    <h2>Guild Map</h2>
+                    <button id="toggle-sidebar" class="toggle-btn" title="Hide Sidebar">&lt;</button>
+                </div>
+                <!-- User info (populated via JavaScript) -->
+                <div class="user-info" id="user-info" style="display: none;">
+                    <img class="user-avatar" id="user-avatar" src="" alt="Avatar">
+                    <div class="user-details">
+                        <div class="user-name" id="user-name">Loading...</div>
+                        <div class="user-tag" id="user-tag">@username</div>
+                        <div class="view-only-badge" id="view-only-badge" style="display:none;">View Only</div>
+                    </div>
+                    <button class="logout-btn" id="logout-btn" title="Logout">Logout</button>
+                </div>
+            </div>
+
+            <!-- Layer toggles — populated dynamically from /api/config -->
+            <div class="layer-control">
+                <div class="layer-control-header">
+                    <h3>Map Layers</h3>
+                    <button class="manage-layers-btn editor-only" id="btn-manage-layers">Manage</button>
+                </div>
+                <!-- Static ocean grid entry always present -->
+                <div class="layer-item">
+                    <input type="checkbox" id="layer-ocean-grid" checked>
+                    <label for="layer-ocean-grid">Ocean Grid</label>
+                    <div class="color-indicator" style="background: #FFD700;"></div>
+                </div>
+                <!-- Dynamic layer checkboxes inserted here -->
+                <div id="layer-toggles-container"></div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="actions-section">
+                <h3>Actions</h3>
+                <button id="btn-add-mode" class="action-btn primary editor-only">
+                    + Add New Location
+                </button>
+                <button id="btn-export" class="action-btn export">
+                    Download CSV Export
+                </button>
+                <button id="btn-import" class="action-btn import editor-only">
+                    Import CSV
+                </button>
+            </div>
+
+            <!-- Instructions -->
+            <div class="instructions">
+                <h4>How to Use</h4>
+                <p><kbd>Click</kbd> on a marker to view/edit/delete</p>
+                <p><kbd>Add Mode</kbd> + click map to place new marker</p>
+                <p>Use layer toggles to show/hide categories</p>
+                <p>Use <kbd>Manage</kbd> to add or rename layers</p>
+            </div>
+        </div>
+
+        <!-- Map container -->
+        <div id="map"></div>
+
+        <!-- Right panel: Location list -->
+        <div id="location-list-panel" class="location-list-panel">
+            <div class="list-panel-header">
+                <h3>Locations</h3>
+                <div class="list-panel-controls">
+                    <button class="list-ctrl-btn" id="minimize-list-panel" title="Minimize">&#8722;</button>
+                    <button class="list-ctrl-btn" id="close-list-panel" title="Hide">&#215;</button>
+                </div>
+            </div>
+            <div class="list-panel-body" id="list-panel-body">
+                <input type="text" class="location-search" id="location-search" placeholder="Search locations...">
+                <div id="location-list-content"></div>
+            </div>
+        </div>
+        <button id="show-list-panel" class="show-list-panel-btn" title="Show Location List">&#9776; List</button>
+    </div>
+
+    <!-- Add/Edit Location Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <h3 id="modal-title">Add New Location</h3>
+            <form id="location-form">
+                <input type="hidden" id="location-id">
+
+                <div class="form-group">
+                    <label for="location-name">Name</label>
+                    <input type="text" id="location-name" required placeholder="Enter location name">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="location-x">X Coordinate</label>
+                        <input type="number" id="location-x" required placeholder="X">
+                    </div>
+                    <div class="form-group">
+                        <label for="location-y">Y Coordinate</label>
+                        <input type="number" id="location-y" required placeholder="Y">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="location-layer">Layer</label>
+                    <!-- Populated dynamically from /api/config -->
+                    <select id="location-layer" required></select>
+                </div>
+
+                <div class="modal-buttons">
+                    <button type="button" class="modal-btn cancel" id="btn-cancel">Cancel</button>
+                    <button type="submit" class="modal-btn save">Save Location</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Import CSV Modal -->
+    <div class="modal-overlay" id="import-modal-overlay">
+        <div class="modal" style="max-width:460px">
+            <h3>Import CSV</h3>
+            <div class="form-group">
+                <label for="import-layer">Import to Layer</label>
+                <!-- Populated dynamically from /api/config -->
+                <select id="import-layer" required></select>
+            </div>
+            <div class="form-group">
+                <label>CSV File</label>
+                <div class="import-drop-zone" id="import-drop-zone">
+                    <input type="file" id="import-file-input" accept=".csv,text/csv,text/plain">
+                    <span id="import-drop-label">Drop a CSV file here, or click to browse</span>
+                </div>
+                <div class="import-preview" id="import-preview"></div>
+            </div>
+            <div class="modal-buttons">
+                <button type="button" class="modal-btn cancel" id="btn-import-cancel">Cancel</button>
+                <button type="button" class="modal-btn save" id="btn-import-confirm" disabled>Import</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Layer Manager Modal -->
+    <div class="modal-overlay" id="layer-manager-overlay">
+        <div class="modal layer-manager-modal">
+            <h3>Manage Layers</h3>
+            <p class="layer-manager-hint">
+                Rename, recolor, or set the icon name for each layer. The icon name is used in CSV exports (e.g. <code>dot</code>, <code>greendot</code>, <code>reddot</code>).
+                The layer ID (slug) is fixed after creation. Deleting a layer does <strong>not</strong> delete its locations.
+            </p>
+            <div class="layer-manager-list" id="layer-manager-list"></div>
+            <button class="add-layer-btn" id="btn-add-layer">+ Add New Layer</button>
+            <div class="modal-buttons">
+                <button type="button" class="modal-btn cancel" id="btn-layer-manager-cancel">Cancel</button>
+                <button type="button" class="modal-btn save" id="btn-layer-manager-save">Save Layers</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Loading indicator -->
+    <div class="loading" id="loading">Loading...</div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <script>
+        /**
+         * Guild Map Manager - Client-side JavaScript
+         *
+         * Handles map initialization, marker management, and API communication.
+         * Layer configuration is loaded dynamically from GET /api/config.
+         */
+
+        // Configuration constants
+        const CONFIG = {
+            MAP_IMAGE: '/gamemap.png',
+            IMAGE_WIDTH: 10752,
+            IMAGE_HEIGHT: 6144,
+            API_BASE: '/api'
+        };
+
+        // Static ocean grid data (168 grid cells, from oceangrid.csv)
+        const OCEAN_GRID = [
+            {x:191,y:218,label:'1A'},{x:191,y:654,label:'2A'},{x:191,y:1090,label:'3A'},{x:191,y:1526,label:'4A'},{x:191,y:1962,label:'5A'},{x:191,y:2398,label:'6A'},{x:191,y:2834,label:'7A'},{x:191,y:3270,label:'8A'},{x:191,y:3706,label:'9A'},{x:191,y:4142,label:'10A'},{x:191,y:4578,label:'11A'},{x:191,y:5014,label:'12A'},{x:191,y:5450,label:'13A'},{x:191,y:5886,label:'14A'},
+            {x:573,y:218,label:'1B'},{x:573,y:654,label:'2B'},{x:573,y:1090,label:'3B'},{x:573,y:1526,label:'4B'},{x:573,y:1962,label:'5B'},{x:573,y:2398,label:'6B'},{x:573,y:2834,label:'7B'},{x:573,y:3270,label:'8B'},{x:573,y:3706,label:'9B'},{x:573,y:4142,label:'10B'},{x:573,y:4578,label:'11B'},{x:573,y:5014,label:'12B'},{x:573,y:5450,label:'13B'},{x:573,y:5886,label:'14B'},
+            {x:955,y:218,label:'1C'},{x:955,y:654,label:'2C'},{x:955,y:1090,label:'3C'},{x:955,y:1526,label:'4C'},{x:955,y:1962,label:'5C'},{x:955,y:2398,label:'6C'},{x:955,y:2834,label:'7C'},{x:955,y:3270,label:'8C'},{x:955,y:3706,label:'9C'},{x:955,y:4142,label:'10C'},{x:955,y:4578,label:'11C'},{x:955,y:5014,label:'12C'},{x:955,y:5450,label:'13C'},{x:955,y:5886,label:'14C'},
+            {x:1337,y:218,label:'1D'},{x:1337,y:654,label:'2D'},{x:1337,y:1090,label:'3D'},{x:1337,y:1526,label:'4D'},{x:1337,y:1962,label:'5D'},{x:1337,y:2398,label:'6D'},{x:1337,y:2834,label:'7D'},{x:1337,y:3270,label:'8D'},{x:1337,y:3706,label:'9D'},{x:1337,y:4142,label:'10D'},{x:1337,y:4578,label:'11D'},{x:1337,y:5014,label:'12D'},{x:1337,y:5450,label:'13D'},{x:1337,y:5886,label:'14D'},
+            {x:1719,y:218,label:'1E'},{x:1719,y:654,label:'2E'},{x:1719,y:1090,label:'3E'},{x:1719,y:1526,label:'4E'},{x:1719,y:1962,label:'5E'},{x:1719,y:2398,label:'6E'},{x:1719,y:2834,label:'7E'},{x:1719,y:3270,label:'8E'},{x:1719,y:3706,label:'9E'},{x:1719,y:4142,label:'10E'},{x:1719,y:4578,label:'11E'},{x:1719,y:5014,label:'12E'},{x:1719,y:5450,label:'13E'},{x:1719,y:5886,label:'14E'},
+            {x:2101,y:218,label:'1F'},{x:2101,y:654,label:'2F'},{x:2101,y:1090,label:'3F'},{x:2101,y:1526,label:'4F'},{x:2101,y:1962,label:'5F'},{x:2101,y:2398,label:'6F'},{x:2101,y:2834,label:'7F'},{x:2101,y:3270,label:'8F'},{x:2101,y:3706,label:'9F'},{x:2101,y:4142,label:'10F'},{x:2101,y:4578,label:'11F'},{x:2101,y:5014,label:'12F'},{x:2101,y:5450,label:'13F'},{x:2101,y:5886,label:'14F'},
+            {x:2483,y:218,label:'1G'},{x:2483,y:654,label:'2G'},{x:2483,y:1090,label:'3G'},{x:2483,y:1526,label:'4G'},{x:2483,y:1962,label:'5G'},{x:2483,y:2398,label:'6G'},{x:2483,y:2834,label:'7G'},{x:2483,y:3270,label:'8G'},{x:2483,y:3706,label:'9G'},{x:2483,y:4142,label:'10G'},{x:2483,y:4578,label:'11G'},{x:2483,y:5014,label:'12G'},{x:2483,y:5450,label:'13G'},{x:2483,y:5886,label:'14G'},
+            {x:2865,y:218,label:'1H'},{x:2865,y:654,label:'2H'},{x:2865,y:1090,label:'3H'},{x:2865,y:1526,label:'4H'},{x:2865,y:1962,label:'5H'},{x:2865,y:2398,label:'6H'},{x:2865,y:2834,label:'7H'},{x:2865,y:3270,label:'8H'},{x:2865,y:3706,label:'9H'},{x:2865,y:4142,label:'10H'},{x:2865,y:4578,label:'11H'},{x:2865,y:5014,label:'12H'},{x:2865,y:5450,label:'13H'},{x:2865,y:5886,label:'14H'},
+            {x:3247,y:218,label:'1i'},{x:3247,y:654,label:'2i'},{x:3247,y:1090,label:'3i'},{x:3247,y:1526,label:'4i'},{x:3247,y:1962,label:'5i'},{x:3247,y:2398,label:'6i'},{x:3247,y:2834,label:'7i'},{x:3247,y:3270,label:'8i'},{x:3247,y:3706,label:'9i'},{x:3247,y:4142,label:'10i'},{x:3247,y:4578,label:'11i'},{x:3247,y:5014,label:'12i'},{x:3247,y:5450,label:'13i'},{x:3247,y:5886,label:'14i'},
+            {x:3629,y:218,label:'1J'},{x:3629,y:654,label:'2J'},{x:3629,y:1090,label:'3J'},{x:3629,y:1526,label:'4J'},{x:3629,y:1962,label:'5J'},{x:3629,y:2398,label:'6J'},{x:3629,y:2834,label:'7J'},{x:3629,y:3270,label:'8J'},{x:3629,y:3706,label:'9J'},{x:3629,y:4142,label:'10J'},{x:3629,y:4578,label:'11J'},{x:3629,y:5014,label:'12J'},{x:3629,y:5450,label:'13J'},{x:3629,y:5886,label:'14J'},
+            {x:4011,y:218,label:'1K'},{x:4011,y:654,label:'2K'},{x:4011,y:1090,label:'3K'},{x:4011,y:1526,label:'4K'},{x:4011,y:1962,label:'5K'},{x:4011,y:2398,label:'6K'},{x:4011,y:2834,label:'7K'},{x:4011,y:3270,label:'8K'},{x:4011,y:3706,label:'9K'},{x:4011,y:4142,label:'10K'},{x:4011,y:4578,label:'11K'},{x:4011,y:5014,label:'12K'},{x:4011,y:5450,label:'13K'},{x:4011,y:5886,label:'14K'},
+            {x:4393,y:218,label:'1L'},{x:4393,y:654,label:'2L'},{x:4393,y:1090,label:'3L'},{x:4393,y:1526,label:'4L'},{x:4393,y:1962,label:'5L'},{x:4393,y:2398,label:'6L'},{x:4393,y:2834,label:'7L'},{x:4393,y:3270,label:'8L'},{x:4393,y:3706,label:'9L'},{x:4393,y:4142,label:'10L'},{x:4393,y:4578,label:'11L'},{x:4393,y:5014,label:'12L'},{x:4393,y:5450,label:'13L'},{x:4393,y:5886,label:'14L'}
+        ];
+
+        /**
+         * Render static ocean grid markers using PNG icons
+         * Called once during initialization — not part of the CRUD location system
+         */
+        function renderOceanGrid() {
+            OCEAN_GRID.forEach(cell => {
+                const mapY = CONFIG.IMAGE_HEIGHT - cell.y;
+                const icon = L.icon({
+                    iconUrl: '/' + cell.label + '.png',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                });
+                const marker = L.marker([mapY, cell.x], { icon });
+                marker.bindPopup(`<div class="popup-content"><h4>Ocean Grid: ${cell.label}</h4><p>X: ${cell.x}, Y: ${cell.y}</p></div>`);
+                marker.addTo(mapLayers['ocean-grid']);
+            });
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Global state
+        // ─────────────────────────────────────────────────────
+        let map = null;
+        let mapLayers = {};
+        let allLocations = [];
+        let layerConfig = []; // loaded from GET /api/config — source of truth for layers
+        let isAddMode = false;
+        let tempMarker = null;
+        let markerMap = new Map(); // Maps location ID to marker
+        let userPermission = 'viewer'; // 'editor' or 'viewer' — set after loadUserInfo()
+
+        // ─────────────────────────────────────────────────────
+        // Initialization
+        // ─────────────────────────────────────────────────────
+
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Load config first — everything else depends on layer definitions
+            await loadConfig();
+            initMap();
+            renderOceanGrid();
+            initSidebar();
+            initModal();
+            initImportModal();
+            initLayerManagerModal();
+            initLocationListPanel();
+            await loadUserInfo();
+            await loadLocations();
+        });
+
+        /**
+         * Load guild config (layers) from /api/config.
+         * Populates layerConfig, layer toggles, and layer dropdowns.
+         */
+        async function loadConfig() {
+            try {
+                const response = await fetch(`${CONFIG.API_BASE}/config`);
+                if (response.status === 401) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                if (!response.ok) {
+                    console.error('Failed to load config');
+                    return;
+                }
+                const data = await response.json();
+                layerConfig = data.layers || [];
+            } catch (error) {
+                console.error('Error loading config:', error);
+                layerConfig = [];
+            }
+
+            // Build UI from the loaded config
+            renderLayerToggles();
+            populateLayerSelects();
+        }
+
+        /**
+         * Render the sidebar layer checkboxes from layerConfig.
+         * Always checked by default. Ocean Grid is handled statically in HTML.
+         */
+        function renderLayerToggles() {
+            const container = document.getElementById('layer-toggles-container');
+            container.innerHTML = '';
+
+            layerConfig.forEach(layer => {
+                const item = document.createElement('div');
+                item.className = 'layer-item';
+                item.innerHTML = `
+                    <input type="checkbox" id="layer-${layer.id}" checked>
+                    <label for="layer-${layer.id}">${escapeHtml(layer.name)}</label>
+                    <div class="color-indicator" style="background: ${layer.color};"></div>
+                `;
+                container.appendChild(item);
+            });
+
+            // Wire up toggle events now that elements exist
+            setupLayerToggles();
+        }
+
+        /**
+         * Populate both layer <select> dropdowns (add/edit modal and import modal)
+         * from layerConfig. Preserves current selection if it still exists.
+         */
+        function populateLayerSelects() {
+            const selects = [
+                document.getElementById('location-layer'),
+                document.getElementById('import-layer')
+            ];
+
+            selects.forEach(select => {
+                if (!select) return;
+                const currentValue = select.value;
+                select.innerHTML = '';
+                layerConfig.forEach(layer => {
+                    const option = document.createElement('option');
+                    option.value = layer.id;
+                    option.textContent = layer.name;
+                    select.appendChild(option);
+                });
+                // Restore previous selection if still valid
+                if (currentValue && layerConfig.some(l => l.id === currentValue)) {
+                    select.value = currentValue;
+                }
+            });
+        }
+
+        /**
+         * Look up display name for a layer id from layerConfig.
+         * Falls back to the id itself if not found.
+         * @param {string} layerId
+         * @returns {string}
+         */
+        function getLayerName(layerId) {
+            const layer = layerConfig.find(l => l.id === layerId);
+            return layer ? layer.name : layerId;
+        }
+
+        /**
+         * Look up color for a layer id from layerConfig.
+         * Falls back to neutral grey.
+         * @param {string} layerId
+         * @returns {string}
+         */
+        function getLayerColor(layerId) {
+            const layer = layerConfig.find(l => l.id === layerId);
+            return layer ? layer.color : '#666666';
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Map
+        // ─────────────────────────────────────────────────────
+
+        /**
+         * Initialize the Leaflet map with custom CRS for game coordinates.
+         * Creates layer groups for each configured layer plus the static ocean-grid.
+         */
+        function initMap() {
+            map = L.map('map', {
+                crs: L.CRS.Simple,
+                minZoom: -2,
+                maxZoom: 3,
+                zoomControl: true,
+                center: [CONFIG.IMAGE_HEIGHT / 2, CONFIG.IMAGE_WIDTH / 2],
+                zoom: -1
+            });
+
+            const bounds = [[0, 0], [CONFIG.IMAGE_HEIGHT, CONFIG.IMAGE_WIDTH]];
+            L.imageOverlay(CONFIG.MAP_IMAGE, bounds).addTo(map);
+            map.fitBounds(bounds);
+            map.setMaxBounds([[-200, -200], [CONFIG.IMAGE_HEIGHT + 200, CONFIG.IMAGE_WIDTH + 200]]);
+
+            // Always create the ocean-grid layer group (static)
+            mapLayers['ocean-grid'] = L.layerGroup();
+            const oceanCheckbox = document.getElementById('layer-ocean-grid');
+            if (oceanCheckbox && oceanCheckbox.checked) {
+                mapLayers['ocean-grid'].addTo(map);
+            }
+
+            // Create a layer group for each configured layer
+            layerConfig.forEach(layer => {
+                mapLayers[layer.id] = L.layerGroup();
+                const checkbox = document.getElementById(`layer-${layer.id}`);
+                if (checkbox && checkbox.checked) {
+                    mapLayers[layer.id].addTo(map);
+                }
+            });
+
+            map.on('click', handleMapClick);
+        }
+
+        /**
+         * Wire up checkbox change events to show/hide layer groups.
+         * Called after renderLayerToggles() creates the elements.
+         */
+        function setupLayerToggles() {
+            // Ocean grid toggle
+            const oceanCheckbox = document.getElementById('layer-ocean-grid');
+            if (oceanCheckbox) {
+                oceanCheckbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        map.addLayer(mapLayers['ocean-grid']);
+                    } else {
+                        map.removeLayer(mapLayers['ocean-grid']);
+                    }
+                });
+            }
+
+            // Dynamic layer toggles
+            layerConfig.forEach(layer => {
+                const checkbox = document.getElementById(`layer-${layer.id}`);
+                if (checkbox) {
+                    checkbox.addEventListener('change', function() {
+                        if (!mapLayers[layer.id]) return;
+                        if (this.checked) {
+                            map.addLayer(mapLayers[layer.id]);
+                        } else {
+                            map.removeLayer(mapLayers[layer.id]);
+                        }
+                    });
+                }
+            });
+        }
+
+        /**
+         * Add a single marker to the map.
+         * Uses location.color (stored on the location) for the dot color.
+         * Falls back to looking up the color from layerConfig if not stored.
+         * @param {Object} location - Location data object
+         */
+        function addMarkerToMap(location) {
+            // Ensure we have a layer group for this location's layer
+            if (!mapLayers[location.layer]) {
+                mapLayers[location.layer] = L.layerGroup();
+                // Add to map if the layer checkbox is checked (or no checkbox = new layer)
+                const checkbox = document.getElementById(`layer-${location.layer}`);
+                if (!checkbox || checkbox.checked) {
+                    mapLayers[location.layer].addTo(map);
+                }
+            }
+
+            const color = location.color || getLayerColor(location.layer);
+            const layerName = getLayerName(location.layer);
+
+            const icon = L.divIcon({
+                className: 'poi-marker',
+                html: `<div style="
+                    background: ${color};
+                    border: 2px solid #333;
+                    border-radius: 50%;
+                    width: 18px;
+                    height: 18px;
+                "></div>`,
+                iconSize: [18, 18],
+                iconAnchor: [9, 9]
+            });
+
+            const mapY = CONFIG.IMAGE_HEIGHT - location.y;
+            const marker = L.marker([mapY, location.x], { icon });
+
+            const editButtons = userPermission === 'editor' ? `
+                    <div class="popup-buttons">
+                        <button class="popup-btn edit" onclick="editLocation('${location.id}')">Edit</button>
+                        <button class="popup-btn delete" onclick="deleteLocation('${location.id}')">Delete</button>
+                    </div>` : '';
+
+            const popupContent = `
+                <div class="popup-content">
+                    <h4>${escapeHtml(location.name)}</h4>
+                    <p>Layer: ${escapeHtml(layerName)}</p>
+                    <p>X: ${location.x}, Y: ${location.y}</p>
+                    ${editButtons}
+                </div>
+            `;
+
+            marker.bindPopup(popupContent);
+            marker.addTo(mapLayers[location.layer]);
+            markerMap.set(location.id, marker);
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Sidebar
+        // ─────────────────────────────────────────────────────
+
+        function initSidebar() {
+            const toggleBtn = document.getElementById('toggle-sidebar');
+            const showBtn = document.getElementById('show-sidebar');
+            const sidebar = document.getElementById('sidebar');
+            const container = document.getElementById('app-container');
+
+            toggleBtn.addEventListener('click', () => {
+                sidebar.classList.add('hidden');
+                container.classList.add('sidebar-hidden');
+            });
+
+            showBtn.addEventListener('click', () => {
+                sidebar.classList.remove('hidden');
+                container.classList.remove('sidebar-hidden');
+            });
+
+            document.getElementById('btn-add-mode').addEventListener('click', toggleAddMode);
+            document.getElementById('btn-export').addEventListener('click', exportLocations);
+            document.getElementById('btn-import').addEventListener('click', openImportModal);
+            document.getElementById('btn-manage-layers').addEventListener('click', openLayerManagerModal);
+            document.getElementById('logout-btn').addEventListener('click', () => {
+                window.location.href = '/auth/logout';
+            });
+        }
+
+        // ─────────────────────────────────────────────────────
+        // User info
+        // ─────────────────────────────────────────────────────
+
+        async function loadUserInfo() {
+            try {
+                const response = await fetch('/auth/me');
+                if (response.status === 401) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                if (!response.ok) return;
+
+                const data = await response.json();
+                if (data.user) {
+                    document.getElementById('user-avatar').src = data.user.avatarUrl;
+                    document.getElementById('user-name').textContent = data.user.globalName || data.user.username;
+                    document.getElementById('user-tag').textContent = '@' + data.user.username;
+                    document.getElementById('user-info').style.display = 'flex';
+
+                    // Apply permission level
+                    userPermission = data.user.permission || 'viewer';
+                    if (userPermission !== 'editor') {
+                        document.body.classList.add('view-only');
+                        document.getElementById('view-only-badge').style.display = 'inline-block';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading user info:', error);
+            }
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Locations
+        // ─────────────────────────────────────────────────────
+
+        async function loadLocations() {
+            showLoading(true);
+            try {
+                const response = await fetch(`${CONFIG.API_BASE}/locations`);
+                if (response.status === 401) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                const data = await response.json();
+                if (data.locations) {
+                    allLocations = data.locations;
+                    renderLocations();
+                }
+            } catch (error) {
+                console.error('Failed to load locations:', error);
+                showToast('Failed to load locations', 'error');
+            }
+            showLoading(false);
+        }
+
+        function renderLocations() {
+            // Clear all dynamic layer groups (leave ocean-grid alone)
+            Object.keys(mapLayers).forEach(key => {
+                if (key !== 'ocean-grid') {
+                    mapLayers[key].clearLayers();
+                }
+            });
+            markerMap.clear();
+
+            allLocations.forEach(location => addMarkerToMap(location));
+            renderLocationList();
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Add mode & map click
+        // ─────────────────────────────────────────────────────
+
+        function handleMapClick(e) {
+            if (!isAddMode) return;
+
+            const gameX = Math.round(e.latlng.lng);
+            const gameY = Math.round(CONFIG.IMAGE_HEIGHT - e.latlng.lat);
+
+            if (tempMarker) map.removeLayer(tempMarker);
+
+            tempMarker = L.marker(e.latlng, {
+                icon: L.divIcon({
+                    className: 'poi-marker',
+                    html: `<div style="
+                        background: #ffd700;
+                        border: 2px solid #333;
+                        border-radius: 50%;
+                        width: 22px;
+                        height: 22px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 12px;
+                    ">+</div>`,
+                    iconSize: [22, 22],
+                    iconAnchor: [11, 11]
+                })
+            }).addTo(map);
+
+            openModal('add', { x: gameX, y: gameY });
+        }
+
+        function toggleAddMode() {
+            isAddMode = !isAddMode;
+            const btn = document.getElementById('btn-add-mode');
+
+            if (isAddMode) {
+                btn.textContent = 'Cancel Add Mode';
+                btn.style.background = '#c62828';
+                document.getElementById('map').style.cursor = 'crosshair';
+            } else {
+                btn.textContent = '+ Add New Location';
+                btn.style.background = '';
+                document.getElementById('map').style.cursor = '';
+                if (tempMarker) {
+                    map.removeLayer(tempMarker);
+                    tempMarker = null;
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Add/Edit Location Modal
+        // ─────────────────────────────────────────────────────
+
+        function initModal() {
+            const overlay = document.getElementById('modal-overlay');
+            document.getElementById('btn-cancel').addEventListener('click', closeModal);
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+            document.getElementById('location-form').addEventListener('submit', handleFormSubmit);
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    closeModal();
+                    if (isAddMode) toggleAddMode();
+                }
+            });
+        }
+
+        function openModal(mode, data = {}) {
+            document.getElementById('modal-title').textContent = mode === 'add' ? 'Add New Location' : 'Edit Location';
+            document.getElementById('location-id').value = data.id || '';
+            document.getElementById('location-name').value = data.name || '';
+            document.getElementById('location-x').value = data.x || '';
+            document.getElementById('location-y').value = data.y || '';
+
+            const layerSelect = document.getElementById('location-layer');
+            if (data.layer && layerConfig.some(l => l.id === data.layer)) {
+                layerSelect.value = data.layer;
+            } else if (layerConfig.length > 0) {
+                layerSelect.value = layerConfig[0].id;
+            }
+
+            document.getElementById('modal-overlay').classList.add('active');
+            document.getElementById('location-name').focus();
+        }
+
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.remove('active');
+            document.getElementById('location-form').reset();
+        }
+
+        async function handleFormSubmit(e) {
+            e.preventDefault();
+
+            const id = document.getElementById('location-id').value;
+            const name = document.getElementById('location-name').value.trim();
+            const x = parseInt(document.getElementById('location-x').value, 10);
+            const y = parseInt(document.getElementById('location-y').value, 10);
+            const layer = document.getElementById('location-layer').value;
+
+            if (!name || isNaN(x) || isNaN(y)) {
+                showToast('Please fill in all fields', 'error');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                let response;
+                if (id) {
+                    response = await fetch(`${CONFIG.API_BASE}/locations/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, x, y, layer })
+                    });
+                } else {
+                    response = await fetch(`${CONFIG.API_BASE}/locations`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, x, y, layer })
+                    });
+                }
+
+                if (response.status === 401) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+
+                if (response.ok) {
+                    showToast(id ? 'Location updated!' : 'Location added!', 'success');
+                    closeModal();
+                    if (isAddMode) toggleAddMode();
+                    await loadLocations();
+                } else {
+                    const error = await response.json();
+                    showToast(error.error || 'Operation failed', 'error');
+                }
+            } catch (error) {
+                console.error('Save error:', error);
+                showToast('Failed to save location', 'error');
+            }
+
+            showLoading(false);
+        }
+
+        function editLocation(id) {
+            const location = allLocations.find(loc => loc.id === id);
+            if (location) {
+                map.closePopup();
+                openModal('edit', location);
+            }
+        }
+
+        async function deleteLocation(id) {
+            const location = allLocations.find(loc => loc.id === id);
+            if (!location) return;
+            if (!confirm(`Delete "${location.name}"?`)) return;
+
+            showLoading(true);
+            try {
+                const response = await fetch(`${CONFIG.API_BASE}/locations/${id}`, { method: 'DELETE' });
+                if (response.status === 401) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                if (response.ok) {
+                    showToast('Location deleted', 'success');
+                    map.closePopup();
+                    await loadLocations();
+                } else {
+                    showToast('Failed to delete location', 'error');
+                }
+            } catch (error) {
+                console.error('Delete error:', error);
+                showToast('Failed to delete location', 'error');
+            }
+            showLoading(false);
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Export
+        // ─────────────────────────────────────────────────────
+
+        function exportLocations() {
+            // Export all configured layers that are currently checked
+            const selectedLayers = layerConfig
+                .filter(layer => {
+                    const checkbox = document.getElementById(`layer-${layer.id}`);
+                    return checkbox && checkbox.checked;
+                })
+                .map(layer => layer.id);
+
+            if (selectedLayers.length === 0) {
+                showToast('No layers selected to export', 'error');
+                return;
+            }
+
+            const layersParam = selectedLayers.join(',');
+            window.location.href = `${CONFIG.API_BASE}/locations/export?layers=${encodeURIComponent(layersParam)}`;
+            showToast(`Exporting ${selectedLayers.length} layer(s)...`, 'success');
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Import CSV Modal
+        // ─────────────────────────────────────────────────────
+
+        let importCsvText = null;
+
+        function openImportModal() {
+            importCsvText = null;
+            document.getElementById('import-file-input').value = '';
+            document.getElementById('import-drop-label').textContent = 'Drop a CSV file here, or click to browse';
+            document.getElementById('import-preview').style.display = 'none';
+            document.getElementById('import-preview').textContent = '';
+            document.getElementById('btn-import-confirm').disabled = true;
+            document.getElementById('import-modal-overlay').classList.add('active');
+        }
+
+        function closeImportModal() {
+            document.getElementById('import-modal-overlay').classList.remove('active');
+            importCsvText = null;
+        }
+
+        function handleImportFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                importCsvText = e.target.result;
+                const lines = importCsvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                document.getElementById('import-drop-label').textContent = `${file.name} (${lines.length} rows)`;
+                const preview = document.getElementById('import-preview');
+                preview.textContent = lines.slice(0, 5).join('\n') + (lines.length > 5 ? `\n…and ${lines.length - 5} more` : '');
+                preview.style.display = 'block';
+                document.getElementById('btn-import-confirm').disabled = false;
+            };
+            reader.readAsText(file);
+        }
+
+        function initImportModal() {
+            const overlay = document.getElementById('import-modal-overlay');
+            const dropZone = document.getElementById('import-drop-zone');
+            const fileInput = document.getElementById('import-file-input');
+
+            document.getElementById('btn-import-cancel').addEventListener('click', closeImportModal);
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) closeImportModal(); });
+            dropZone.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', () => handleImportFile(fileInput.files[0]));
+
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('drag-over');
+            });
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+                handleImportFile(e.dataTransfer.files[0]);
+            });
+
+            document.getElementById('btn-import-confirm').addEventListener('click', doImport);
+        }
+
+        async function doImport() {
+            if (!importCsvText) return;
+            const layer = document.getElementById('import-layer').value;
+            showLoading(true);
+            try {
+                const response = await fetch(`${CONFIG.API_BASE}/locations/import?layer=${encodeURIComponent(layer)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: importCsvText
+                });
+
+                if (response.status === 401) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+
+                const data = await response.json();
+                if (response.ok) {
+                    const msg = `Imported ${data.imported} location(s) to ${getLayerName(layer)}` +
+                        (data.skipped > 0 ? ` (${data.skipped} skipped)` : '');
+                    showToast(msg, 'success');
+                    closeImportModal();
+                    await loadLocations();
+                } else {
+                    showToast(data.error || 'Import failed', 'error');
+                }
+            } catch (error) {
+                console.error('Import error:', error);
+                showToast('Import failed', 'error');
+            }
+            showLoading(false);
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Layer Manager Modal
+        // ─────────────────────────────────────────────────────
+
+        // Working copy of layers being edited in the modal
+        let editingLayers = [];
+
+        function initLayerManagerModal() {
+            const overlay = document.getElementById('layer-manager-overlay');
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) closeLayerManagerModal(); });
+            document.getElementById('btn-layer-manager-cancel').addEventListener('click', closeLayerManagerModal);
+            document.getElementById('btn-layer-manager-save').addEventListener('click', saveLayersConfig);
+            document.getElementById('btn-add-layer').addEventListener('click', addNewLayerRow);
+        }
+
+        function openLayerManagerModal() {
+            // Deep copy current config for editing
+            editingLayers = layerConfig.map(l => ({ ...l }));
+            renderLayerManagerList();
+            document.getElementById('layer-manager-overlay').classList.add('active');
+        }
+
+        function closeLayerManagerModal() {
+            document.getElementById('layer-manager-overlay').classList.remove('active');
+        }
+
+        /**
+         * Render the layer manager list from editingLayers.
+         * Each row: color swatch, name input, color picker, delete button.
+         */
+        function renderLayerManagerList() {
+            const list = document.getElementById('layer-manager-list');
+            list.innerHTML = '';
+
+            editingLayers.forEach((layer, index) => {
+                const row = document.createElement('div');
+                row.className = 'layer-manager-row';
+                row.dataset.index = index;
+
+                const colorDot = document.createElement('div');
+                colorDot.className = 'color-indicator';
+                colorDot.style.background = layer.color;
+                colorDot.style.width = '16px';
+                colorDot.style.height = '16px';
+                colorDot.style.flexShrink = '0';
+
+                const nameInput = document.createElement('input');
+                nameInput.type = 'text';
+                nameInput.value = layer.name;
+                nameInput.placeholder = 'Layer name';
+                nameInput.addEventListener('input', () => {
+                    editingLayers[index].name = nameInput.value;
+                });
+
+                const iconInput = document.createElement('input');
+                iconInput.type = 'text';
+                iconInput.className = 'layer-icon-input';
+                iconInput.value = layer.icon || 'dot';
+                iconInput.placeholder = 'icon';
+                iconInput.title = 'Icon name for CSV export (e.g. dot, greendot, reddot)';
+                iconInput.addEventListener('input', () => {
+                    editingLayers[index].icon = iconInput.value;
+                });
+
+                const colorInput = document.createElement('input');
+                colorInput.type = 'color';
+                colorInput.className = 'layer-color-input';
+                colorInput.value = layer.color;
+                colorInput.title = 'Pick color';
+                colorInput.addEventListener('input', () => {
+                    editingLayers[index].color = colorInput.value;
+                    colorDot.style.background = colorInput.value;
+                });
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'layer-delete-btn';
+                deleteBtn.textContent = '✕';
+                deleteBtn.title = 'Remove layer';
+                deleteBtn.addEventListener('click', () => {
+                    editingLayers.splice(index, 1);
+                    renderLayerManagerList();
+                });
+
+                row.appendChild(colorDot);
+                row.appendChild(nameInput);
+                row.appendChild(iconInput);
+                row.appendChild(colorInput);
+                row.appendChild(deleteBtn);
+                list.appendChild(row);
+            });
+        }
+
+        /**
+         * Append a new blank layer row to editingLayers and re-render.
+         */
+        function addNewLayerRow() {
+            const newLayer = {
+                id: 'layer-' + Date.now(),
+                name: 'New Layer',
+                color: '#888888',
+                icon: 'dot'
+            };
+            editingLayers.push(newLayer);
+            renderLayerManagerList();
+
+            // Focus the new row's name input
+            const rows = document.querySelectorAll('.layer-manager-row');
+            const lastRow = rows[rows.length - 1];
+            if (lastRow) {
+                const nameInput = lastRow.querySelector('input[type="text"]');
+                if (nameInput) {
+                    nameInput.focus();
+                    nameInput.select();
+                }
+            }
+        }
+
+        /**
+         * Save the edited layers to /api/config, then refresh the UI.
+         */
+        async function saveLayersConfig() {
+            // Validate all layers have names
+            for (const layer of editingLayers) {
+                if (!layer.name.trim()) {
+                    showToast('All layers must have a name', 'error');
+                    return;
+                }
+            }
+
+            showLoading(true);
+            try {
+                const response = await fetch(`${CONFIG.API_BASE}/config`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ layers: editingLayers })
+                });
+
+                if (response.status === 401) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+
+                if (response.ok) {
+                    const data = await response.json();
+                    layerConfig = data.layers;
+
+                    // Rebuild UI elements that depend on layer config
+                    renderLayerToggles();
+                    populateLayerSelects();
+
+                    // Rebuild any new layer groups on the map
+                    layerConfig.forEach(layer => {
+                        if (!mapLayers[layer.id]) {
+                            mapLayers[layer.id] = L.layerGroup();
+                            mapLayers[layer.id].addTo(map);
+                        }
+                    });
+
+                    // Re-render markers so colors/names update
+                    renderLocations();
+
+                    closeLayerManagerModal();
+                    showToast('Layers saved!', 'success');
+                } else {
+                    const error = await response.json();
+                    showToast(error.error || 'Failed to save layers', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving layers:', error);
+                showToast('Failed to save layers', 'error');
+            }
+            showLoading(false);
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Location List Panel
+        // ─────────────────────────────────────────────────────
+
+        function initLocationListPanel() {
+            const panel = document.getElementById('location-list-panel');
+            const minimizeBtn = document.getElementById('minimize-list-panel');
+            const container = document.getElementById('app-container');
+
+            minimizeBtn.addEventListener('click', () => {
+                const isMinimized = panel.classList.toggle('minimized');
+                minimizeBtn.innerHTML = isMinimized ? '&#43;' : '&#8722;';
+                minimizeBtn.title = isMinimized ? 'Expand' : 'Minimize';
+            });
+
+            document.getElementById('close-list-panel').addEventListener('click', () => {
+                panel.classList.add('hidden');
+                container.classList.add('list-panel-hidden');
+            });
+
+            document.getElementById('show-list-panel').addEventListener('click', () => {
+                panel.classList.remove('hidden');
+                container.classList.remove('list-panel-hidden');
+            });
+
+            document.getElementById('location-search').addEventListener('input', renderLocationList);
+        }
+
+        /**
+         * Render the location list in the right panel, grouped by layer.
+         * Uses layerConfig for display order and layer names.
+         */
+        function renderLocationList() {
+            const listContent = document.getElementById('location-list-content');
+            if (!listContent) return;
+
+            const searchTerm = (document.getElementById('location-search')?.value || '').toLowerCase();
+
+            // Group locations by layer
+            const grouped = {};
+            allLocations.forEach(loc => {
+                if (searchTerm && !loc.name.toLowerCase().includes(searchTerm)) return;
+                if (!grouped[loc.layer]) grouped[loc.layer] = [];
+                grouped[loc.layer].push(loc);
+            });
+
+            // Sort each group alphabetically
+            Object.keys(grouped).forEach(layer => {
+                grouped[layer].sort((a, b) => a.name.localeCompare(b.name));
+            });
+
+            listContent.innerHTML = '';
+
+            // Render groups in layerConfig order, then any unrecognized layers after
+            const knownIds = layerConfig.map(l => l.id);
+            const unknownLayerIds = Object.keys(grouped).filter(id => !knownIds.includes(id));
+            const orderedIds = [...knownIds, ...unknownLayerIds];
+
+            orderedIds.forEach(layerId => {
+                const locs = grouped[layerId];
+                if (!locs || locs.length === 0) return;
+
+                const color = getLayerColor(layerId);
+                const name = getLayerName(layerId);
+
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'layer-group';
+
+                const headerDiv = document.createElement('div');
+                headerDiv.className = 'layer-group-header';
+                headerDiv.innerHTML = `
+                    <div class="layer-dot" style="background:${color}"></div>
+                    <span>${escapeHtml(name)}</span>
+                    <span class="group-count">${locs.length}</span>
+                    <span class="group-collapse-icon">&#9662;</span>
+                `;
+
+                const itemsDiv = document.createElement('div');
+                itemsDiv.className = 'layer-group-items';
+
+                locs.forEach(loc => {
+                    const item = document.createElement('div');
+                    item.className = 'location-list-item';
+                    item.dataset.id = loc.id;
+
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'item-name';
+                    nameSpan.textContent = loc.name;
+                    nameSpan.title = loc.name;
+
+                    const editBtn = document.createElement('button');
+                    editBtn.className = 'item-edit-btn editor-only';
+                    editBtn.textContent = 'Edit';
+                    editBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        editLocation(loc.id);
+                    });
+
+                    item.appendChild(nameSpan);
+                    item.appendChild(editBtn);
+                    item.addEventListener('mouseenter', () => highlightMarker(loc.id, true));
+                    item.addEventListener('mouseleave', () => highlightMarker(loc.id, false));
+                    item.addEventListener('click', () => panToLocation(loc.id));
+                    itemsDiv.appendChild(item);
+                });
+
+                headerDiv.addEventListener('click', () => {
+                    const collapsed = itemsDiv.style.display === 'none';
+                    itemsDiv.style.display = collapsed ? '' : 'none';
+                    headerDiv.querySelector('.group-collapse-icon').innerHTML = collapsed ? '&#9662;' : '&#9656;';
+                });
+
+                groupDiv.appendChild(headerDiv);
+                groupDiv.appendChild(itemsDiv);
+                listContent.appendChild(groupDiv);
+            });
+
+            if (listContent.children.length === 0) {
+                listContent.innerHTML = '<div style="color:#888;text-align:center;padding:20px;font-size:12px">No locations found</div>';
+            }
+        }
+
+        // ─────────────────────────────────────────────────────
+        // Utility
+        // ─────────────────────────────────────────────────────
+
+        function highlightMarker(id, highlight) {
+            const marker = markerMap.get(id);
+            if (!marker) return;
+            const el = marker.getElement();
+            if (!el) return;
+            if (highlight) {
+                el.style.filter = 'drop-shadow(0 0 5px #ffd700) drop-shadow(0 0 2px #fff)';
+                el.style.transform = 'scale(1.6)';
+                el.style.zIndex = '9999';
+            } else {
+                el.style.filter = '';
+                el.style.transform = '';
+                el.style.zIndex = '';
+            }
+        }
+
+        function panToLocation(id) {
+            const location = allLocations.find(l => l.id === id);
+            const marker = markerMap.get(id);
+            if (!location || !marker) return;
+            const mapY = CONFIG.IMAGE_HEIGHT - location.y;
+            map.flyTo([mapY, location.x], 1, { duration: 0.4 });
+            setTimeout(() => marker.openPopup(), 500);
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').classList.toggle('active', show);
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Expose for popup button onclick handlers
+        window.editLocation = editLocation;
+        window.deleteLocation = deleteLocation;
+    </script>
+</body>
+</html>

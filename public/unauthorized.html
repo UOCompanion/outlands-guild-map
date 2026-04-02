@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Denied - Guild Map Manager</title>
+    <style>
+        /* Base styles - dark theme matching main app */
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .error-container {
+            background: rgba(45, 45, 45, 0.95);
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 450px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid #c62828;
+        }
+
+        .error-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #f44336;
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+
+        .error-message {
+            color: #ccc;
+            margin-bottom: 30px;
+            line-height: 1.6;
+            font-size: 15px;
+        }
+
+        .reason-box {
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+
+        .reason-box h3 {
+            color: #f44336;
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .reason-box p {
+            color: #ccc;
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: #5865F2;
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #4752C4;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: #555;
+            color: #fff;
+        }
+
+        .btn-secondary:hover {
+            background: #666;
+        }
+
+        .help-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #444;
+        }
+
+        .help-section h3 {
+            color: #ffd700;
+            font-size: 14px;
+            margin: 0 0 15px 0;
+        }
+
+        .help-section ol {
+            text-align: left;
+            padding-left: 20px;
+            margin: 0;
+        }
+
+        .help-section li {
+            color: #999;
+            font-size: 13px;
+            padding: 6px 0;
+            line-height: 1.4;
+        }
+
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-icon">🚫</div>
+        <h1>Access Denied</h1>
+
+        <div class="reason-box" id="reason-box">
+            <h3>Why am I seeing this?</h3>
+            <p id="reason-text">You don't have the required role to access this application.</p>
+        </div>
+
+        <p class="error-message">
+            This map is restricted to guild members with the appropriate role.
+            If you believe you should have access, please contact a guild officer.
+        </p>
+
+        <div class="action-buttons">
+            <a href="/auth/login" class="btn btn-primary">Try Again</a>
+            <a href="/auth/login" class="btn btn-secondary">Contact an Officer</a>
+        </div>
+
+        <div class="help-section">
+            <h3>How to get access:</h3>
+            <ol>
+                <li>Join the guild's Discord server if you haven't already</li>
+                <li>Contact a guild officer and request the required role</li>
+                <li>Once you have the role, return here and log in again</li>
+            </ol>
+        </div>
+
+        <div class="footer">
+            <p>Already have the role? Try logging out and back in.</p>
+        </div>
+    </div>
+
+    <script>
+        // Parse the reason from the URL query parameter
+        const params = new URLSearchParams(window.location.search);
+        const reason = params.get('reason');
+        const reasonText = document.getElementById('reason-text');
+        const reasonBox = document.getElementById('reason-box');
+
+        if (reason === 'not_member') {
+            reasonText.textContent = 'You are not a member of any authorized Discord server. Please join the guild\'s server first.';
+        } else if (reason === 'no_role') {
+            reasonText.textContent = 'You are a member of the Discord server, but you don\'t have the MAP role assigned.';
+        } else if (reason === 'session_expired') {
+            reasonText.textContent = 'Your session has expired. Please log in again.';
+            reasonBox.style.borderColor = 'rgba(255, 193, 7, 0.3)';
+            reasonBox.style.background = 'rgba(255, 193, 7, 0.1)';
+            document.querySelector('.reason-box h3').style.color = '#FFC107';
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# Guild-specific Wrangler config (contains KV IDs, Discord IDs, auth rules)
+# Copy wrangler.toml.example to wrangler.toml and fill in your values
+wrangler.toml
+
+# Local development secrets — never commit
+.dev.vars
+
+# Wrangler local cache
+.wrangler/
+
+# Dependencies
+node_modules/
+
+# Claude Code project instructions
+CLAUDE.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

@@ -1,0 +1,137 @@
+# Cloudflare Workers configuration for Map Manager
+# ──────────────────────────────────────────────────────────────────────────────
+# SETUP: Copy this file to wrangler.toml and fill in your guild's values.
+#        wrangler.toml is gitignored — never commit real IDs or secrets.
+# ──────────────────────────────────────────────────────────────────────────────
+name = "my-guild-map"           # becomes my-guild-map.workers.dev
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# ─────────────────────────────────────────────────────────────
+# Guild Configuration
+# ─────────────────────────────────────────────────────────────
+
+[vars]
+# Your Discord application's Client ID (not secret — safe to store here)
+# Found at: discord.com/developers/applications → your app → OAuth2
+DISCORD_CLIENT_ID = "your-discord-client-id"
+
+# Who is allowed to access the map, and what they can do.
+# guild_id        — your Discord server ID
+# editor_role_ids — these roles get full read/write access
+# viewer_role_ids — these roles get read-only access
+#                   set to [] to allow any guild member to view
+# Find IDs in Discord with Developer Mode on (right-click → Copy ID).
+DISCORD_AUTH_RULES = '''
+{
+    "guild_id": "your-guild-id",
+    "editor_role_ids": ["your-editor-role-id"],
+    "viewer_role_ids": ["your-viewer-role-id"]
+}
+'''
+
+# Starting map layers — seeded into KV on first deploy.
+# After deploying, layers can be managed from the UI (Manage button in sidebar).
+# Once saved from the UI, KV takes precedence over this value.
+# 'id' is a stable slug stored on each location — avoid changing it post-deploy.
+MAP_LAYERS = '''
+[
+    {
+        "id": "dockmasters",
+        "name": "Dockmasters",
+        "color": "#2196F3",
+        "icon": "dot"
+    },
+    {
+        "id": "guild-runes",
+        "name": "Guild Runes",
+        "color": "#4CAF50",
+        "icon": "dot"
+    },
+    {
+        "id": "houses",
+        "name": "Houses",
+        "color": "#FFC107",
+        "icon": "dot"
+    }
+]
+'''
+
+# ─────────────────────────────────────────────────────────────
+# KV Namespaces
+# ─────────────────────────────────────────────────────────────
+# Create these with:
+#   wrangler kv:namespace create "MAP_LOCATIONS"
+#   wrangler kv:namespace create "MAP_SESSIONS"
+# Then paste the printed IDs below.
+
+[[kv_namespaces]]
+binding = "MAP_LOCATIONS"
+id = "paste-your-map-locations-namespace-id-here"
+
+[[kv_namespaces]]
+binding = "MAP_SESSIONS"
+id = "paste-your-map-sessions-namespace-id-here"
+
+# ─────────────────────────────────────────────────────────────
+# Secrets (never stored here — set via CLI)
+# ─────────────────────────────────────────────────────────────
+# wrangler secret put DISCORD_CLIENT_SECRET
+#   → Your Discord app's client secret (OAuth2 page in Developer Portal)
+#
+# wrangler secret put SESSION_SECRET
+#   → Any random 32+ character string. Generate one with:
+#      node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# ─────────────────────────────────────────────────────────────
+# Static Assets
+# ─────────────────────────────────────────────────────────────
+
+[site]
+bucket = "./public"
+
+# ─────────────────────────────────────────────────────────────
+# Local Development
+# ─────────────────────────────────────────────────────────────
+# Secrets for local dev go in .dev.vars (also gitignored):
+#   DISCORD_CLIENT_SECRET=...
+#   SESSION_SECRET=...
+
+[dev]
+port = 8787
+local_protocol = "http"
+
+# ─────────────────────────────────────────────────────────────
+# Additional Guild Environments (optional)
+# ─────────────────────────────────────────────────────────────
+# Use named environments to deploy multiple independent instances
+# from one wrangler.toml. Each gets its own Worker name, KV, and secrets.
+#
+# Deploy:  wrangler deploy --env second-guild
+# Secrets: wrangler secret put DISCORD_CLIENT_SECRET --env second-guild
+#
+# [env.second-guild]
+# name = "second-guild-map"
+#
+# [env.second-guild.vars]
+# DISCORD_CLIENT_ID = "other-client-id"
+# DISCORD_AUTH_RULES = '''
+# {
+#     "guild_id": "other-guild-id",
+#     "editor_role_ids": ["other-editor-role-id"],
+#     "viewer_role_ids": ["other-viewer-role-id"]
+# }
+# '''
+# MAP_LAYERS = '''
+# [
+#     { "id": "docks", "name": "Docks", "color": "#2196F3", "icon": "dot" }
+# ]
+# '''
+#
+# [[env.second-guild.kv_namespaces]]
+# binding = "MAP_LOCATIONS"
+# id = "paste-second-guild-locations-id-here"
+#
+# [[env.second-guild.kv_namespaces]]
+# binding = "MAP_SESSIONS"
+# id = "paste-second-guild-sessions-id-here"
