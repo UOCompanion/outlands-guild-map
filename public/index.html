@@ -725,11 +725,46 @@
             padding-left: 4px;
         }
 
+        .group-header-actions {
+            display: flex;
+            gap: 3px;
+            margin-left: 4px;
+            opacity: 0;
+            transition: opacity 0.12s ease;
+        }
+
+        .layer-group-header:hover .group-header-actions {
+            opacity: 1;
+        }
+
+        .group-action-btn {
+            background: none;
+            border: 1px solid #666;
+            color: #aaa;
+            border-radius: 3px;
+            padding: 1px 5px;
+            cursor: pointer;
+            font-size: 10px;
+            line-height: 1.4;
+        }
+
+        .group-action-btn:hover {
+            background: #555;
+            color: #fff;
+        }
+
+        .group-action-btn.delete-btn:hover {
+            background: #c62828;
+            border-color: #c62828;
+            color: #fff;
+        }
+
         .location-list-item {
             display: flex;
             align-items: center;
             gap: 4px;
             padding: 4px 6px;
+            border-left: 3px solid transparent;
             border-radius: 3px;
             cursor: pointer;
             font-size: 12px;
@@ -1346,7 +1381,8 @@
                 }
             }
 
-            const color = location.color || getLayerColor(location.layer);
+            // Always derive color from live layerConfig — ignores stale stored color
+            const color = getLayerColor(location.layer);
             const layerName = getLayerName(location.layer);
 
             const icon = L.divIcon({
@@ -1955,6 +1991,92 @@
         }
 
         // ─────────────────────────────────────────────────────
+        // Layer quick-actions (rename / delete from location list panel)
+        // ─────────────────────────────────────────────────────
+
+        /**
+         * Save an updated layers array to /api/config and refresh the full UI.
+         * Shared by inline rename and delete-layer actions.
+         * @param {Array} layers - New layers array to persist
+         */
+        async function putLayerConfig(layers) {
+            showLoading(true);
+            try {
+                const response = await fetch(`${CONFIG.API_BASE}/config`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ layers })
+                });
+                if (response.status === 401) { window.location.href = '/login.html'; return; }
+                if (response.ok) {
+                    const data = await response.json();
+                    layerConfig = data.layers;
+                    renderLayerToggles();
+                    populateLayerSelects();
+                    renderLocations();
+                    showToast('Layer updated', 'success');
+                } else {
+                    const err = await response.json();
+                    showToast(err.error || 'Failed to update layer', 'error');
+                }
+            } catch (e) {
+                console.error('Error updating layer config:', e);
+                showToast('Failed to update layer', 'error');
+            }
+            showLoading(false);
+        }
+
+        /**
+         * Replace a layer name span with an inline input for renaming.
+         * Saves on Enter or blur; cancels on Escape.
+         * @param {string} layerId
+         * @param {HTMLElement} nameSpan - The span element showing the current name
+         */
+        function startLayerRename(layerId, nameSpan) {
+            const currentName = nameSpan.textContent;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentName;
+            input.style.cssText = 'background:#2a2a2a;border:1px solid #ffd700;color:#fff;border-radius:3px;padding:1px 6px;font-size:12px;width:130px;';
+            nameSpan.replaceWith(input);
+            input.focus();
+            input.select();
+
+            let saved = false;
+
+            async function saveRename() {
+                if (saved) return;
+                saved = true;
+                const newName = input.value.trim();
+                if (newName && newName !== currentName) {
+                    const updated = layerConfig.map(l => l.id === layerId ? { ...l, name: newName } : l);
+                    await putLayerConfig(updated);
+                } else {
+                    renderLocationList();
+                }
+            }
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); saveRename(); }
+                if (e.key === 'Escape') { saved = true; renderLocationList(); }
+            });
+            input.addEventListener('blur', saveRename);
+        }
+
+        /**
+         * Delete a layer and all its locations after user confirmation.
+         * Removes the layer from config (backend purges its locations from KV).
+         * @param {string} layerId
+         * @param {string} layerName - Display name shown in the confirm dialog
+         */
+        async function deleteLayerFromList(layerId, layerName) {
+            if (!confirm(`Delete layer "${layerName}" and all its locations? This cannot be undone.`)) return;
+            allLocations = allLocations.filter(loc => loc.layer !== layerId);
+            const updated = layerConfig.filter(l => l.id !== layerId);
+            await putLayerConfig(updated);
+        }
+
+        // ─────────────────────────────────────────────────────
         // Location List Panel
         // ─────────────────────────────────────────────────────
 
@@ -2024,12 +2146,51 @@
 
                 const headerDiv = document.createElement('div');
                 headerDiv.className = 'layer-group-header';
-                headerDiv.innerHTML = `
-                    <div class="layer-dot" style="background:${color}"></div>
-                    <span>${escapeHtml(name)}</span>
-                    <span class="group-count">${locs.length}</span>
-                    <span class="group-collapse-icon">&#9662;</span>
-                `;
+
+                const dot = document.createElement('div');
+                dot.className = 'layer-dot';
+                dot.style.background = color;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'group-layer-name';
+                nameSpan.textContent = name;
+
+                const countSpan = document.createElement('span');
+                countSpan.className = 'group-count';
+                countSpan.textContent = locs.length;
+
+                // Edit/Delete buttons — editor-only, hidden until hover
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'group-header-actions editor-only';
+
+                const editLayerBtn = document.createElement('button');
+                editLayerBtn.className = 'group-action-btn';
+                editLayerBtn.textContent = 'Rename';
+                editLayerBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    startLayerRename(layerId, nameSpan);
+                });
+
+                const deleteLayerBtn = document.createElement('button');
+                deleteLayerBtn.className = 'group-action-btn delete-btn';
+                deleteLayerBtn.textContent = 'Delete';
+                deleteLayerBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteLayerFromList(layerId, name);
+                });
+
+                actionsDiv.appendChild(editLayerBtn);
+                actionsDiv.appendChild(deleteLayerBtn);
+
+                const collapseIcon = document.createElement('span');
+                collapseIcon.className = 'group-collapse-icon';
+                collapseIcon.innerHTML = '&#9662;';
+
+                headerDiv.appendChild(dot);
+                headerDiv.appendChild(nameSpan);
+                headerDiv.appendChild(countSpan);
+                headerDiv.appendChild(actionsDiv);
+                headerDiv.appendChild(collapseIcon);
 
                 const itemsDiv = document.createElement('div');
                 itemsDiv.className = 'layer-group-items';
@@ -2038,6 +2199,7 @@
                     const item = document.createElement('div');
                     item.className = 'location-list-item';
                     item.dataset.id = loc.id;
+                    item.style.borderLeftColor = color;
 
                     const nameSpan = document.createElement('span');
                     nameSpan.className = 'item-name';
@@ -2063,7 +2225,7 @@
                 headerDiv.addEventListener('click', () => {
                     const collapsed = itemsDiv.style.display === 'none';
                     itemsDiv.style.display = collapsed ? '' : 'none';
-                    headerDiv.querySelector('.group-collapse-icon').innerHTML = collapsed ? '&#9662;' : '&#9656;';
+                    collapseIcon.innerHTML = collapsed ? '&#9662;' : '&#9656;';
                 });
 
                 groupDiv.appendChild(headerDiv);
