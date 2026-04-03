@@ -81,6 +81,7 @@ export async function handleGetConfig(request, env) {
  * Handle PUT /api/config
  * Replaces the stored config with the provided body.
  * Validates that layers is a non-empty array and each layer has required fields.
+ * When layers are deleted, purges all locations belonging to those layers from KV.
  * @param {Request} request - Incoming request with config JSON body
  * @param {Object} env - Cloudflare environment
  * @returns {Response} JSON response with the saved config
@@ -130,7 +131,22 @@ export async function handleUpdateConfig(request, env) {
     }
 
     try {
+        // Determine which layer IDs are being removed so we can purge their locations
+        const oldConfig = await getConfig(env);
+        const newLayerIds = new Set(body.layers.map(l => l.id));
+        const deletedLayerIds = oldConfig.layers.map(l => l.id).filter(id => !newLayerIds.has(id));
+
+        // Save the new config
         await env.MAP_LOCATIONS.put('config', JSON.stringify(config));
+
+        // Purge locations belonging to deleted layers
+        if (deletedLayerIds.length > 0) {
+            const stored = await env.MAP_LOCATIONS.get('locations', { type: 'json' });
+            if (stored && stored.locations) {
+                const remaining = stored.locations.filter(loc => !deletedLayerIds.includes(loc.layer));
+                await env.MAP_LOCATIONS.put('locations', JSON.stringify({ locations: remaining }));
+            }
+        }
     } catch (error) {
         console.error('Error saving config to KV:', error);
         return new Response(JSON.stringify({ error: 'Failed to save config' }), {
