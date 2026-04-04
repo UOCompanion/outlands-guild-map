@@ -1165,12 +1165,15 @@
         // ─────────────────────────────────────────────────────
         let map = null;
         let mapLayers = {};
-        let allLocations = [];
-        let layerConfig = []; // loaded from GET /api/config — source of truth for layers
+        let allLocations = [];           // Own guild's locations (editable)
+        let allianceLocations = [];      // Alliance guild locations (read-only)
+        let layerConfig = [];            // Own guild's layer config from GET /api/config
+        let allianceFeeds = [];          // [{label, url, key}] from ALLIANCE_FEEDS env var
+        let allianceLayerMap = {};       // Keyed by namespaced layer ID: guildId:layerId
         let isAddMode = false;
         let tempMarker = null;
-        let markerMap = new Map(); // Maps location ID to marker
-        let userPermission = 'viewer'; // 'editor' or 'viewer' — set after loadUserInfo()
+        let markerMap = new Map();       // Maps location ID to marker
+        let userPermission = 'viewer';   // 'editor' or 'viewer' — set after loadUserInfo()
 
         // ─────────────────────────────────────────────────────
         // Initialization
@@ -1207,9 +1210,11 @@
                 }
                 const data = await response.json();
                 layerConfig = data.layers || [];
+                allianceFeeds = data.alliance_feeds || [];
             } catch (error) {
                 console.error('Error loading config:', error);
                 layerConfig = [];
+                allianceFeeds = [];
             }
 
             // Build UI from the loaded config
@@ -1274,7 +1279,7 @@
          * @returns {string}
          */
         function getLayerName(layerId) {
-            const layer = layerConfig.find(l => l.id === layerId);
+            const layer = layerConfig.find(l => l.id === layerId) || allianceLayerMap[layerId];
             return layer ? layer.name : layerId;
         }
 
@@ -1285,7 +1290,7 @@
          * @returns {string}
          */
         function getLayerColor(layerId) {
-            const layer = layerConfig.find(l => l.id === layerId);
+            const layer = layerConfig.find(l => l.id === layerId) || allianceLayerMap[layerId];
             return layer ? layer.color : '#666666';
         }
 
@@ -1489,16 +1494,67 @@
         async function loadLocations() {
             showLoading(true);
             try {
-                const response = await fetch(`${CONFIG.API_BASE}/locations`);
-                if (response.status === 401) {
+                // Fetch own locations + all alliance feeds in parallel
+                const [ownResponse, ...feedResponses] = await Promise.all([
+                    fetch(`${CONFIG.API_BASE}/locations`),
+                    ...allianceFeeds.map(feed =>
+                        fetch(feed.url, {
+                            headers: { 'Authorization': `Bearer ${feed.key}` }
+                        }).catch(err => {
+                            console.warn(`Alliance feed failed (${feed.label}):`, err);
+                            return null;
+                        })
+                    )
+                ]);
+
+                if (ownResponse.status === 401) {
                     window.location.href = '/login.html';
                     return;
                 }
-                const data = await response.json();
-                if (data.locations) {
-                    allLocations = data.locations;
-                    renderLocations();
+                const data = await ownResponse.json();
+                allLocations = data.locations || [];
+
+                // Process alliance feeds — namespace layer IDs and build layer lookup
+                allianceLocations = [];
+                allianceLayerMap = {};
+                for (let i = 0; i < allianceFeeds.length; i++) {
+                    const feed = allianceFeeds[i];
+                    const res = feedResponses[i];
+                    if (!res || !res.ok) continue;
+                    try {
+                        const feedData = await res.json();
+                        const guildId = feedData.guild_id || feed.label;
+                        const guildLabel = feed.label;
+
+                        // Namespace each location's layer ID and collect unique layers
+                        const layersSeen = {};
+                        const namespaced = (feedData.locations || []).map(loc => {
+                            const nsLayer = `${guildId}:${loc.layer}`;
+                            if (!layersSeen[nsLayer]) {
+                                layersSeen[nsLayer] = true;
+                                allianceLayerMap[nsLayer] = {
+                                    id: nsLayer,
+                                    name: `[${guildLabel}] ${loc.layer}`,
+                                    color: loc.color || '#888888',
+                                    icon: loc.icon || 'dot',
+                                    alliance_guild: guildLabel,
+                                    guild_id: guildId
+                                };
+                            }
+                            return {
+                                ...loc,
+                                layer: nsLayer,
+                                alliance_source: true,
+                                alliance_guild: guildLabel
+                            };
+                        });
+                        allianceLocations.push(...namespaced);
+                    } catch (e) {
+                        console.warn(`Failed to parse alliance feed (${feed.label}):`, e);
+                    }
                 }
+
+                renderLocations();
             } catch (error) {
                 console.error('Failed to load locations:', error);
                 showToast('Failed to load locations', 'error');
@@ -1515,7 +1571,10 @@
             });
             markerMap.clear();
 
+            // Render own guild locations (editable)
             allLocations.forEach(location => addMarkerToMap(location));
+            // Render alliance locations (read-only markers, same visual pipeline)
+            allianceLocations.forEach(location => addMarkerToMap(location));
             renderLocationList();
         }
 
@@ -1890,6 +1949,22 @@
                     colorDot.style.background = colorInput.value;
                 });
 
+                // Alliance share toggle
+                const shareLabel = document.createElement('label');
+                shareLabel.title = 'Share this layer with alliance members (visible via public feed)';
+                shareLabel.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:11px;color:#aaa;flex-shrink:0;cursor:pointer;';
+
+                const shareCheckbox = document.createElement('input');
+                shareCheckbox.type = 'checkbox';
+                shareCheckbox.checked = !!layer.alliance_shared;
+                shareCheckbox.title = 'Share with alliance';
+                shareCheckbox.addEventListener('change', () => {
+                    editingLayers[index].alliance_shared = shareCheckbox.checked;
+                });
+
+                shareLabel.appendChild(shareCheckbox);
+                shareLabel.appendChild(document.createTextNode('Alliance'));
+
                 const deleteBtn = document.createElement('button');
                 deleteBtn.className = 'layer-delete-btn';
                 deleteBtn.textContent = '✕';
@@ -1903,6 +1978,7 @@
                 row.appendChild(nameInput);
                 row.appendChild(iconInput);
                 row.appendChild(colorInput);
+                row.appendChild(shareLabel);
                 row.appendChild(deleteBtn);
                 list.appendChild(row);
             });
@@ -2108,58 +2184,41 @@
          * Render the location list in the right panel, grouped by layer.
          * Uses layerConfig for display order and layer names.
          */
-        function renderLocationList() {
-            const listContent = document.getElementById('location-list-content');
-            if (!listContent) return;
+        /**
+         * Build a collapsible layer group element for the location list.
+         * Used for both own-guild layers and alliance layers.
+         * @param {string} layerId
+         * @param {string} name - Display name for the group header
+         * @param {string} color - Hex color for the dot and item borders
+         * @param {Array} locs - Array of location objects in this group
+         * @param {boolean} isAlliance - If true, suppresses edit/delete controls
+         * @returns {HTMLElement} The group div
+         */
+        function buildLayerGroupElement(layerId, name, color, locs, isAlliance) {
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'layer-group';
 
-            const searchTerm = (document.getElementById('location-search')?.value || '').toLowerCase();
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'layer-group-header';
 
-            // Group locations by layer
-            const grouped = {};
-            allLocations.forEach(loc => {
-                if (searchTerm && !loc.name.toLowerCase().includes(searchTerm)) return;
-                if (!grouped[loc.layer]) grouped[loc.layer] = [];
-                grouped[loc.layer].push(loc);
-            });
+            const dot = document.createElement('div');
+            dot.className = 'layer-dot';
+            dot.style.background = color;
 
-            // Sort each group alphabetically
-            Object.keys(grouped).forEach(layer => {
-                grouped[layer].sort((a, b) => a.name.localeCompare(b.name));
-            });
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'group-layer-name';
+            nameSpan.textContent = name;
 
-            listContent.innerHTML = '';
+            const countSpan = document.createElement('span');
+            countSpan.className = 'group-count';
+            countSpan.textContent = locs.length;
 
-            // Render groups in layerConfig order, then any unrecognized layers after
-            const knownIds = layerConfig.map(l => l.id);
-            const unknownLayerIds = Object.keys(grouped).filter(id => !knownIds.includes(id));
-            const orderedIds = [...knownIds, ...unknownLayerIds];
+            headerDiv.appendChild(dot);
+            headerDiv.appendChild(nameSpan);
+            headerDiv.appendChild(countSpan);
 
-            orderedIds.forEach(layerId => {
-                const locs = grouped[layerId];
-                if (!locs || locs.length === 0) return;
-
-                const color = getLayerColor(layerId);
-                const name = getLayerName(layerId);
-
-                const groupDiv = document.createElement('div');
-                groupDiv.className = 'layer-group';
-
-                const headerDiv = document.createElement('div');
-                headerDiv.className = 'layer-group-header';
-
-                const dot = document.createElement('div');
-                dot.className = 'layer-dot';
-                dot.style.background = color;
-
-                const nameSpan = document.createElement('span');
-                nameSpan.className = 'group-layer-name';
-                nameSpan.textContent = name;
-
-                const countSpan = document.createElement('span');
-                countSpan.className = 'group-count';
-                countSpan.textContent = locs.length;
-
-                // Edit/Delete buttons — editor-only, hidden until hover
+            // Edit/Delete buttons — own layers only, editor-only
+            if (!isAlliance) {
                 const actionsDiv = document.createElement('div');
                 actionsDiv.className = 'group-header-actions editor-only';
 
@@ -2181,31 +2240,31 @@
 
                 actionsDiv.appendChild(editLayerBtn);
                 actionsDiv.appendChild(deleteLayerBtn);
-
-                const collapseIcon = document.createElement('span');
-                collapseIcon.className = 'group-collapse-icon';
-                collapseIcon.innerHTML = '&#9662;';
-
-                headerDiv.appendChild(dot);
-                headerDiv.appendChild(nameSpan);
-                headerDiv.appendChild(countSpan);
                 headerDiv.appendChild(actionsDiv);
-                headerDiv.appendChild(collapseIcon);
+            }
 
-                const itemsDiv = document.createElement('div');
-                itemsDiv.className = 'layer-group-items';
+            const collapseIcon = document.createElement('span');
+            collapseIcon.className = 'group-collapse-icon';
+            collapseIcon.innerHTML = '&#9662;';
+            headerDiv.appendChild(collapseIcon);
 
-                locs.forEach(loc => {
-                    const item = document.createElement('div');
-                    item.className = 'location-list-item';
-                    item.dataset.id = loc.id;
-                    item.style.borderLeftColor = color;
+            const itemsDiv = document.createElement('div');
+            itemsDiv.className = 'layer-group-items';
 
-                    const nameSpan = document.createElement('span');
-                    nameSpan.className = 'item-name';
-                    nameSpan.textContent = loc.name;
-                    nameSpan.title = loc.name;
+            locs.forEach(loc => {
+                const item = document.createElement('div');
+                item.className = 'location-list-item';
+                item.dataset.id = loc.id;
+                item.style.borderLeftColor = color;
 
+                const locNameSpan = document.createElement('span');
+                locNameSpan.className = 'item-name';
+                locNameSpan.textContent = loc.name;
+                locNameSpan.title = loc.name;
+                item.appendChild(locNameSpan);
+
+                // Edit button — own locations only
+                if (!isAlliance) {
                     const editBtn = document.createElement('button');
                     editBtn.className = 'item-edit-btn editor-only';
                     editBtn.textContent = 'Edit';
@@ -2213,25 +2272,131 @@
                         e.stopPropagation();
                         editLocation(loc.id);
                     });
-
-                    item.appendChild(nameSpan);
                     item.appendChild(editBtn);
-                    item.addEventListener('mouseenter', () => highlightMarker(loc.id, true));
-                    item.addEventListener('mouseleave', () => highlightMarker(loc.id, false));
-                    item.addEventListener('click', () => panToLocation(loc.id));
-                    itemsDiv.appendChild(item);
-                });
+                }
 
-                headerDiv.addEventListener('click', () => {
-                    const collapsed = itemsDiv.style.display === 'none';
-                    itemsDiv.style.display = collapsed ? '' : 'none';
-                    collapseIcon.innerHTML = collapsed ? '&#9662;' : '&#9656;';
-                });
-
-                groupDiv.appendChild(headerDiv);
-                groupDiv.appendChild(itemsDiv);
-                listContent.appendChild(groupDiv);
+                item.addEventListener('mouseenter', () => highlightMarker(loc.id, true));
+                item.addEventListener('mouseleave', () => highlightMarker(loc.id, false));
+                item.addEventListener('click', () => panToLocation(loc.id));
+                itemsDiv.appendChild(item);
             });
+
+            headerDiv.addEventListener('click', () => {
+                const collapsed = itemsDiv.style.display === 'none';
+                itemsDiv.style.display = collapsed ? '' : 'none';
+                collapseIcon.innerHTML = collapsed ? '&#9662;' : '&#9656;';
+            });
+
+            groupDiv.appendChild(headerDiv);
+            groupDiv.appendChild(itemsDiv);
+            return groupDiv;
+        }
+
+        /**
+         * Render the location list in the right panel.
+         * Own guild layers first (in layerConfig order), then an Alliance section
+         * grouped by guild with read-only items.
+         */
+        function renderLocationList() {
+            const listContent = document.getElementById('location-list-content');
+            if (!listContent) return;
+
+            const searchTerm = (document.getElementById('location-search')?.value || '').toLowerCase();
+
+            listContent.innerHTML = '';
+
+            // ── Own guild layers ──────────────────────────────
+            const ownGrouped = {};
+            allLocations.forEach(loc => {
+                if (searchTerm && !loc.name.toLowerCase().includes(searchTerm)) return;
+                if (!ownGrouped[loc.layer]) ownGrouped[loc.layer] = [];
+                ownGrouped[loc.layer].push(loc);
+            });
+            Object.keys(ownGrouped).forEach(layer => {
+                ownGrouped[layer].sort((a, b) => a.name.localeCompare(b.name));
+            });
+
+            const knownIds = layerConfig.map(l => l.id);
+            const unknownIds = Object.keys(ownGrouped).filter(id => !knownIds.includes(id));
+            [...knownIds, ...unknownIds].forEach(layerId => {
+                const locs = ownGrouped[layerId];
+                if (!locs || locs.length === 0) return;
+                const color = getLayerColor(layerId);
+                const name = getLayerName(layerId);
+                listContent.appendChild(buildLayerGroupElement(layerId, name, color, locs, false));
+            });
+
+            // ── Alliance section ──────────────────────────────
+            if (allianceLocations.length > 0) {
+                // Group alliance locations by guild label, then by namespaced layer
+                const allianceByGuild = {};
+                allianceLocations.forEach(loc => {
+                    if (searchTerm && !loc.name.toLowerCase().includes(searchTerm)) return;
+                    const guild = loc.alliance_guild || 'Alliance';
+                    if (!allianceByGuild[guild]) allianceByGuild[guild] = {};
+                    if (!allianceByGuild[guild][loc.layer]) allianceByGuild[guild][loc.layer] = [];
+                    allianceByGuild[guild][loc.layer].push(loc);
+                });
+
+                const guildLabels = Object.keys(allianceByGuild);
+                if (guildLabels.length > 0) {
+                    // Alliance section header
+                    const allianceHeader = document.createElement('div');
+                    allianceHeader.style.cssText = 'padding:6px 8px 2px;font-size:10px;color:#ffd700;text-transform:uppercase;letter-spacing:1px;border-top:1px solid #444;margin-top:4px;';
+                    allianceHeader.textContent = 'Alliance';
+                    listContent.appendChild(allianceHeader);
+
+                    guildLabels.forEach(guildLabel => {
+                        // Guild sub-header (collapsible)
+                        const guildGroup = document.createElement('div');
+                        guildGroup.className = 'layer-group';
+
+                        const guildHeader = document.createElement('div');
+                        guildHeader.className = 'layer-group-header';
+                        guildHeader.style.paddingLeft = '4px';
+
+                        const guildNameSpan = document.createElement('span');
+                        guildNameSpan.style.cssText = 'font-size:11px;color:#ccc;font-weight:600;flex:1;';
+                        guildNameSpan.textContent = guildLabel;
+
+                        const totalCount = Object.values(allianceByGuild[guildLabel])
+                            .reduce((sum, locs) => sum + locs.length, 0);
+                        const guildCount = document.createElement('span');
+                        guildCount.className = 'group-count';
+                        guildCount.textContent = totalCount;
+
+                        const guildCollapse = document.createElement('span');
+                        guildCollapse.className = 'group-collapse-icon';
+                        guildCollapse.innerHTML = '&#9662;';
+
+                        guildHeader.appendChild(guildNameSpan);
+                        guildHeader.appendChild(guildCount);
+                        guildHeader.appendChild(guildCollapse);
+
+                        const guildLayersDiv = document.createElement('div');
+
+                        // Render each layer within this guild
+                        Object.entries(allianceByGuild[guildLabel]).forEach(([nsLayerId, locs]) => {
+                            locs.sort((a, b) => a.name.localeCompare(b.name));
+                            const color = getLayerColor(nsLayerId);
+                            const layerMeta = allianceLayerMap[nsLayerId];
+                            // Show just the original layer name (without guild prefix) inside the guild group
+                            const displayName = layerMeta ? layerMeta.name.replace(`[${guildLabel}] `, '') : nsLayerId;
+                            guildLayersDiv.appendChild(buildLayerGroupElement(nsLayerId, displayName, color, locs, true));
+                        });
+
+                        guildHeader.addEventListener('click', () => {
+                            const collapsed = guildLayersDiv.style.display === 'none';
+                            guildLayersDiv.style.display = collapsed ? '' : 'none';
+                            guildCollapse.innerHTML = collapsed ? '&#9662;' : '&#9656;';
+                        });
+
+                        guildGroup.appendChild(guildHeader);
+                        guildGroup.appendChild(guildLayersDiv);
+                        listContent.appendChild(guildGroup);
+                    });
+                }
+            }
 
             if (listContent.children.length === 0) {
                 listContent.innerHTML = '<div style="color:#888;text-align:center;padding:20px;font-size:12px">No locations found</div>';

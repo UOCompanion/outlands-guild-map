@@ -14,7 +14,8 @@ import {
     handleUpdateLocation,
     handleDeleteLocation,
     handleExportLocations,
-    handleImportLocations
+    handleImportLocations,
+    handleGetPublicLocations
 } from './api/locations.js';
 import {
     handleGetConfig,
@@ -93,6 +94,14 @@ export default {
         // Handle authentication routes (public)
         if (path.startsWith('/auth/')) {
             return handleAuthRequest(request, env, path);
+        }
+
+        // Public federation endpoint — bearer token auth, no Discord session required
+        if (path === '/api/public/locations' && method === 'GET') {
+            const resp = await handleGetPublicLocations(request, env);
+            const newHeaders = new Headers(resp.headers);
+            Object.entries(corsHeaders).forEach(([k, v]) => newHeaders.set(k, v));
+            return new Response(resp.body, { status: resp.status, headers: newHeaders });
         }
 
         // Check if this is a public path

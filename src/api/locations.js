@@ -357,6 +357,67 @@ export async function handleImportLocations(request, env) {
 }
 
 /**
+ * Handle GET /api/public/locations
+ * Returns locations on alliance-shared layers without requiring Discord auth.
+ * Validated by a Bearer token matching the ALLIANCE_PUBLIC_KEY env var.
+ * Location IDs are omitted — consumers get display data only, no mutation handles.
+ * Response includes guild_id and guild_name for the consuming map to namespace layers.
+ * @param {Request} request - Incoming request
+ * @param {Object} env - Cloudflare environment
+ * @returns {Response} JSON response with guild info and locations array
+ */
+export async function handleGetPublicLocations(request, env) {
+    // Validate bearer token against ALLIANCE_PUBLIC_KEY
+    const authHeader = request.headers.get('Authorization') || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+
+    if (!env.ALLIANCE_PUBLIC_KEY || token !== env.ALLIANCE_PUBLIC_KEY) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    // Get config to find which layers are alliance-shared
+    const config = await getConfig(env);
+    const sharedLayerIds = new Set(
+        config.layers.filter(l => l.alliance_shared).map(l => l.id)
+    );
+
+    if (sharedLayerIds.size === 0) {
+        return new Response(JSON.stringify({
+            guild_id: env.DISCORD_GUILD_ID || '',
+            guild_name: env.GUILD_NAME || '',
+            locations: []
+        }), {
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    // Load all locations and filter to shared layers only
+    const allLocs = await getLocations(env);
+    const sharedLocs = allLocs
+        .filter(loc => sharedLayerIds.has(loc.layer))
+        .map(({ id: _id, ...rest }) => rest); // strip id — read-only consumers don't need it
+
+    // Resolve guild identity — guild_id from DISCORD_AUTH_RULES, name from GUILD_NAME
+    let guildId = '';
+    try {
+        const authRules = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
+        guildId = authRules.guild_id || '';
+    } catch (e) { /* ignore parse errors */ }
+    const guildName = env.GUILD_NAME || '';
+
+    return new Response(JSON.stringify({
+        guild_id: guildId,
+        guild_name: guildName,
+        locations: sharedLocs
+    }), {
+        headers: { 'Content-Type': 'application/json' }
+    });
+}
+
+/**
  * Handle GET /api/locations/export
  * Exports locations as CSV in the required format:
  * x,y,0,NAME,icon-name,color,0

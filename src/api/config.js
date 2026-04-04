@@ -65,14 +65,44 @@ export async function getConfig(env) {
 
 /**
  * Handle GET /api/config
- * Returns the current guild config (layers, etc.)
+ * Returns the current guild config (layers, etc.) plus federation metadata:
+ *   - alliance_feeds: parsed from ALLIANCE_FEEDS env var (array of {label, url, key})
+ *   - guild_name: from GUILD_NAME env var (used by alliance members to label this guild)
  * @param {Request} request - Incoming request
  * @param {Object} env - Cloudflare environment
  * @returns {Response} JSON response with config object
  */
 export async function handleGetConfig(request, env) {
     const config = await getConfig(env);
-    return new Response(JSON.stringify(config), {
+
+    // Parse ALLIANCE_FEEDS env var — list of alliance guild feed endpoints
+    let allianceFeeds = [];
+    if (env.ALLIANCE_FEEDS) {
+        try {
+            const parsed = JSON.parse(env.ALLIANCE_FEEDS);
+            if (Array.isArray(parsed)) {
+                allianceFeeds = parsed;
+            }
+        } catch (e) {
+            console.error('Failed to parse ALLIANCE_FEEDS env var:', e.message);
+        }
+    }
+
+    // Parse guild_id from DISCORD_AUTH_RULES for federation identification
+    let guildId = '';
+    try {
+        const authRules = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
+        guildId = authRules.guild_id || '';
+    } catch (e) { /* ignore */ }
+
+    const response = {
+        ...config,
+        guild_id: guildId,
+        guild_name: env.GUILD_NAME || '',
+        alliance_feeds: allianceFeeds
+    };
+
+    return new Response(JSON.stringify(response), {
         headers: { 'Content-Type': 'application/json' }
     });
 }
@@ -118,6 +148,10 @@ export async function handleUpdateConfig(request, env) {
         // Default icon to 'dot' if not provided
         if (!layer.icon) {
             layer.icon = 'dot';
+        }
+        // Default alliance_shared to false if not provided
+        if (layer.alliance_shared === undefined) {
+            layer.alliance_shared = false;
         }
     }
 
