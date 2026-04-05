@@ -22,6 +22,13 @@ import {
     handleUpdateConfig
 } from './api/config.js';
 import {
+    handleGetAllianceInfo,
+    handleCreateAlliance,
+    handleJoinAlliance,
+    handleCreateAllianceInvite,
+    handleLeaveAlliance
+} from './api/alliance.js';
+import {
     handleLogin,
     handleCallback,
     handleLogout,
@@ -223,6 +230,22 @@ async function handleApiRequest(request, env, path, method, user) {
         else if (path.match(/^\/api\/locations\/[^/]+$/) && method === 'DELETE') {
             const id = path.split('/').pop();
             response = isEditor ? await handleDeleteLocation(request, env, id) : editorOnlyResponse();
+        }
+        // Alliance management — proxied to hub (editors only for writes)
+        else if (path === '/api/alliance/info' && method === 'GET') {
+            response = await handleGetAllianceInfo(request, env);
+        }
+        else if (path === '/api/alliance/create' && method === 'POST') {
+            response = isEditor ? await handleCreateAlliance(request, env) : editorOnlyResponse();
+        }
+        else if (path === '/api/alliance/join' && method === 'POST') {
+            response = isEditor ? await handleJoinAlliance(request, env) : editorOnlyResponse();
+        }
+        else if (path === '/api/alliance/invite' && method === 'POST') {
+            response = isEditor ? await handleCreateAllianceInvite(request, env) : editorOnlyResponse();
+        }
+        else if (path === '/api/alliance/leave' && method === 'DELETE') {
+            response = isEditor ? await handleLeaveAlliance(request, env) : editorOnlyResponse();
         }
         // Unknown API endpoint
         else {

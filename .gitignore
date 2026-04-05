@@ -13,7 +13,9 @@ node_modules/
 
 # Claude Code project instructions
 CLAUDE.md
-
+federation-spec-revised.md
+federation-spec.md
+.claude/
 # OS
 .DS_Store
 Thumbs.db

@@ -921,6 +921,102 @@
             line-height: 1.4;
         }
 
+        /* Alliance section */
+        .alliance-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #444;
+        }
+
+        .alliance-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            background: #3d3d3d;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #ccc;
+        }
+
+        .alliance-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .alliance-status-dot.connected { background: #4caf50; }
+        .alliance-status-dot.disconnected { background: #888; }
+
+        /* Alliance modal */
+        .alliance-modal {
+            max-width: 480px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #alliance-modal-content {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 0;
+        }
+
+        .alliance-member-list {
+            list-style: none;
+            padding: 0;
+            margin: 8px 0 0;
+        }
+
+        .alliance-member-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 10px;
+            background: #3d3d3d;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            font-size: 13px;
+            color: #ccc;
+        }
+
+        .alliance-member-item.self {
+            border-left: 3px solid #ffd700;
+        }
+
+        .alliance-token-box {
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 8px 10px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #4caf50;
+            word-break: break-all;
+            margin: 8px 0;
+            cursor: pointer;
+            user-select: all;
+        }
+
+        .alliance-token-box:hover {
+            border-color: #4caf50;
+        }
+
+        .alliance-divider {
+            border: none;
+            border-top: 1px solid #444;
+            margin: 16px 0;
+        }
+
+        .alliance-label {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
         /* View-only mode — hides all write controls */
         .view-only-badge {
             display: inline-block;
@@ -990,6 +1086,18 @@
                 <button id="btn-import" class="action-btn import editor-only">
                     Import CSV
                 </button>
+            </div>
+
+            <!-- Alliance section — shown only when hub is configured -->
+            <div class="alliance-section editor-only" id="alliance-section" style="display:none;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <h3 style="margin:0;color:#ffd700;font-size:16px;">Alliance</h3>
+                    <button class="manage-layers-btn" id="btn-manage-alliance">Manage</button>
+                </div>
+                <div class="alliance-status" id="alliance-status-row">
+                    <div class="alliance-status-dot disconnected" id="alliance-status-dot"></div>
+                    <span id="alliance-status-text">Not in an alliance</span>
+                </div>
             </div>
 
             <!-- Instructions -->
@@ -1100,6 +1208,19 @@
         </div>
     </div>
 
+    <!-- Alliance Management Modal -->
+    <div class="modal-overlay" id="alliance-modal-overlay">
+        <div class="modal alliance-modal">
+            <h3>Alliance Management</h3>
+            <div id="alliance-modal-content">
+                <div style="text-align:center;color:#888;padding:20px;font-size:13px;">Loading...</div>
+            </div>
+            <div class="modal-buttons" style="margin-top:16px;">
+                <button type="button" class="modal-btn cancel" id="btn-alliance-close">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast notification -->
     <div class="toast" id="toast"></div>
 
@@ -1168,8 +1289,12 @@
         let allLocations = [];           // Own guild's locations (editable)
         let allianceLocations = [];      // Alliance guild locations (read-only)
         let layerConfig = [];            // Own guild's layer config from GET /api/config
-        let allianceFeeds = [];          // [{label, url, key}] from ALLIANCE_FEEDS env var
+        let allianceFeeds = [];          // Phase 1: [{label, url, key}] from ALLIANCE_FEEDS env var
         let allianceLayerMap = {};       // Keyed by namespaced layer ID: guildId:layerId
+        let ownGuildId = '';             // This guild's ID (from /api/config)
+        let allianceHubUrl = null;       // Phase 2: hub worker URL (safe to expose — public read endpoints)
+        let allianceId = null;           // Phase 2: current alliance_id
+        let allianceHubConfigured = false; // Phase 2: true when hub + API key are both set
         let isAddMode = false;
         let tempMarker = null;
         let markerMap = new Map();       // Maps location ID to marker
@@ -1190,6 +1315,7 @@
             initLayerManagerModal();
             initLocationListPanel();
             await loadUserInfo();
+            initAllianceSection();
             await loadLocations();
         });
 
@@ -1211,6 +1337,15 @@
                 const data = await response.json();
                 layerConfig = data.layers || [];
                 allianceFeeds = data.alliance_feeds || [];
+                ownGuildId = data.guild_id || '';
+                allianceHubUrl = data.alliance_hub_url || null;
+                allianceId = data.alliance_id || null;
+                allianceHubConfigured = !!data.alliance_hub_configured;
+
+                if (allianceHubConfigured) {
+                    const section = document.getElementById('alliance-section');
+                    if (section) section.style.display = '';
+                }
             } catch (error) {
                 console.error('Error loading config:', error);
                 layerConfig = [];
@@ -1494,19 +1629,7 @@
         async function loadLocations() {
             showLoading(true);
             try {
-                // Fetch own locations + all alliance feeds in parallel
-                const [ownResponse, ...feedResponses] = await Promise.all([
-                    fetch(`${CONFIG.API_BASE}/locations`),
-                    ...allianceFeeds.map(feed =>
-                        fetch(feed.url, {
-                            headers: { 'Authorization': `Bearer ${feed.key}` }
-                        }).catch(err => {
-                            console.warn(`Alliance feed failed (${feed.label}):`, err);
-                            return null;
-                        })
-                    )
-                ]);
-
+                const ownResponse = await fetch(`${CONFIG.API_BASE}/locations`);
                 if (ownResponse.status === 401) {
                     window.location.href = '/login.html';
                     return;
@@ -1514,43 +1637,105 @@
                 const data = await ownResponse.json();
                 allLocations = data.locations || [];
 
-                // Process alliance feeds — namespace layer IDs and build layer lookup
                 allianceLocations = [];
                 allianceLayerMap = {};
-                for (let i = 0; i < allianceFeeds.length; i++) {
-                    const feed = allianceFeeds[i];
-                    const res = feedResponses[i];
-                    if (!res || !res.ok) continue;
-                    try {
-                        const feedData = await res.json();
-                        const guildId = feedData.guild_id || feed.label;
-                        const guildLabel = feed.label;
 
-                        // Namespace each location's layer ID and collect unique layers
-                        const layersSeen = {};
-                        const namespaced = (feedData.locations || []).map(loc => {
-                            const nsLayer = `${guildId}:${loc.layer}`;
-                            if (!layersSeen[nsLayer]) {
-                                layersSeen[nsLayer] = true;
+                if (allianceHubConfigured && allianceId) {
+                    // Phase 2: read federated locations directly from hub's public endpoints.
+                    // Hub serves these without auth (CORS: *); allianceHubUrl is safe to expose.
+                    try {
+                        const [locRes, layerRes] = await Promise.all([
+                            fetch(`${allianceHubUrl}/api/federation/${encodeURIComponent(allianceId)}/locations`),
+                            fetch(`${allianceHubUrl}/api/federation/${encodeURIComponent(allianceId)}/layers`)
+                        ]);
+
+                        // Build layer lookup first so marker colors resolve correctly
+                        if (layerRes.ok) {
+                            const layerData = await layerRes.json();
+                            (layerData.layers || []).forEach(layer => {
+                                const nsLayer = `${layer.guild_id}:${layer.layer_id}`;
                                 allianceLayerMap[nsLayer] = {
                                     id: nsLayer,
-                                    name: `[${guildLabel}] ${loc.layer}`,
-                                    color: loc.color || '#888888',
-                                    icon: loc.icon || 'dot',
-                                    alliance_guild: guildLabel,
-                                    guild_id: guildId
+                                    name: `[${layer.guild_name}] ${layer.layer_name}`,
+                                    color: layer.color,
+                                    icon: layer.icon || 'dot',
+                                    alliance_guild: layer.guild_name,
+                                    guild_id: layer.guild_id
                                 };
-                            }
-                            return {
-                                ...loc,
-                                layer: nsLayer,
-                                alliance_source: true,
-                                alliance_guild: guildLabel
-                            };
-                        });
-                        allianceLocations.push(...namespaced);
-                    } catch (e) {
-                        console.warn(`Failed to parse alliance feed (${feed.label}):`, e);
+                            });
+                        }
+
+                        if (locRes.ok) {
+                            const locData = await locRes.json();
+                            // Exclude our own guild's locations — already in allLocations
+                            (locData.locations || [])
+                                .filter(loc => loc.guild_id !== ownGuildId)
+                                .forEach(loc => {
+                                    const nsLayer = `${loc.guild_id}:${loc.layer}`;
+                                    allianceLocations.push({
+                                        id: loc.location_id,
+                                        name: loc.name,
+                                        x: loc.x,
+                                        y: loc.y,
+                                        layer: nsLayer,
+                                        icon: loc.icon,
+                                        color: loc.color,
+                                        alliance_source: true,
+                                        alliance_guild: loc.guild_name
+                                    });
+                                });
+                        }
+                    } catch (err) {
+                        console.warn('Phase 2 hub fetch failed, showing own locations only:', err);
+                    }
+
+                } else if (allianceFeeds.length > 0) {
+                    // Phase 1: direct feed fetches (ALLIANCE_FEEDS env var, bearer-token protected)
+                    const feedResponses = await Promise.all(
+                        allianceFeeds.map(feed =>
+                            fetch(feed.url, {
+                                headers: { 'Authorization': `Bearer ${feed.key}` }
+                            }).catch(err => {
+                                console.warn(`Alliance feed failed (${feed.label}):`, err);
+                                return null;
+                            })
+                        )
+                    );
+
+                    for (let i = 0; i < allianceFeeds.length; i++) {
+                        const feed = allianceFeeds[i];
+                        const res = feedResponses[i];
+                        if (!res || !res.ok) continue;
+                        try {
+                            const feedData = await res.json();
+                            const guildId = feedData.guild_id || feed.label;
+                            const guildLabel = feed.label;
+
+                            const layersSeen = {};
+                            const namespaced = (feedData.locations || []).map(loc => {
+                                const nsLayer = `${guildId}:${loc.layer}`;
+                                if (!layersSeen[nsLayer]) {
+                                    layersSeen[nsLayer] = true;
+                                    allianceLayerMap[nsLayer] = {
+                                        id: nsLayer,
+                                        name: `[${guildLabel}] ${loc.layer}`,
+                                        color: loc.color || '#888888',
+                                        icon: loc.icon || 'dot',
+                                        alliance_guild: guildLabel,
+                                        guild_id: guildId
+                                    };
+                                }
+                                return {
+                                    ...loc,
+                                    layer: nsLayer,
+                                    alliance_source: true,
+                                    alliance_guild: guildLabel
+                                };
+                            });
+                            allianceLocations.push(...namespaced);
+                        } catch (e) {
+                            console.warn(`Failed to parse alliance feed (${feed.label}):`, e);
+                        }
                     }
                 }
 
@@ -2449,9 +2634,224 @@
             return div.innerHTML;
         }
 
-        // Expose for popup button onclick handlers
+        // ─────────────────────────────────────────────────────
+        // Alliance management
+        // ─────────────────────────────────────────────────────
+
+        /**
+         * Wire up alliance section "Manage" button and modal close.
+         * Called once from DOMContentLoaded after the section HTML is in place.
+         */
+        function initAllianceSection() {
+            const manageBtn = document.getElementById('btn-manage-alliance');
+            if (manageBtn) manageBtn.addEventListener('click', openAllianceModal);
+
+            document.getElementById('btn-alliance-close').addEventListener('click', closeAllianceModal);
+            document.getElementById('alliance-modal-overlay').addEventListener('click', (e) => {
+                if (e.target === document.getElementById('alliance-modal-overlay')) closeAllianceModal();
+            });
+        }
+
+        function openAllianceModal() {
+            document.getElementById('alliance-modal-overlay').classList.add('active');
+            loadAllianceInfo();
+        }
+
+        function closeAllianceModal() {
+            document.getElementById('alliance-modal-overlay').classList.remove('active');
+        }
+
+        /**
+         * Fetch GET /api/alliance/info and render the appropriate modal state.
+         * Returns { alliance: null } when no alliance is configured.
+         */
+        async function loadAllianceInfo() {
+            const content = document.getElementById('alliance-modal-content');
+            content.innerHTML = '<div style="text-align:center;color:#888;padding:20px;font-size:13px;">Loading...</div>';
+
+            try {
+                const res = await fetch(`${CONFIG.API_BASE}/alliance/info`);
+                if (!res.ok) {
+                    content.innerHTML = `<div style="color:#f44336;padding:12px;font-size:13px;">Failed to load alliance info (${res.status})</div>`;
+                    return;
+                }
+                const data = await res.json();
+                if (data.alliance) {
+                    renderAllianceConnected(data.alliance);
+                } else {
+                    renderAllianceDisconnected();
+                }
+            } catch (err) {
+                content.innerHTML = `<div style="color:#f44336;padding:12px;font-size:13px;">Error: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        /** Render the modal when this guild is in an alliance. */
+        function renderAllianceConnected(alliance) {
+            document.getElementById('alliance-status-dot').className = 'alliance-status-dot connected';
+            document.getElementById('alliance-status-text').textContent = alliance.alliance_name || 'In alliance';
+
+            const members = alliance.members || [];
+            const memberItems = members.map(m => `
+                <li class="alliance-member-item${m.guild_id === ownGuildId ? ' self' : ''}">
+                    <span style="flex:1">${escapeHtml(m.guild_name || m.guild_id)}</span>
+                    ${m.guild_id === ownGuildId ? '<span style="font-size:10px;color:#888">(this guild)</span>' : ''}
+                </li>
+            `).join('');
+
+            document.getElementById('alliance-modal-content').innerHTML = `
+                <div class="alliance-label">Alliance</div>
+                <div style="font-size:15px;font-weight:bold;color:#ffd700;margin-bottom:12px;">${escapeHtml(alliance.alliance_name || '')}</div>
+
+                <div class="alliance-label">Members (${members.length})</div>
+                <ul class="alliance-member-list">${memberItems || '<li style="color:#888;font-size:12px;padding:8px;">No members found</li>'}</ul>
+
+                <hr class="alliance-divider">
+
+                <div class="alliance-label">Invite another guild</div>
+                <p style="font-size:12px;color:#aaa;margin:0 0 8px;">Generate a single-use token to share with another guild leader.</p>
+                <button class="modal-btn save" style="margin:0" onclick="generateInvite()">Generate Invite Token</button>
+                <div id="invite-token-display" style="display:none">
+                    <div class="alliance-label" style="margin-top:12px;">Token (click to copy)</div>
+                    <div class="alliance-token-box" id="invite-token-box" onclick="copyInviteToken()"></div>
+                    <p style="font-size:11px;color:#888;margin:0;">Expires in 72 hours. Single use only.</p>
+                </div>
+
+                <hr class="alliance-divider">
+
+                <div class="alliance-label" style="color:#f44336;">Danger Zone</div>
+                <button class="modal-btn" style="background:#5a1a1a;border:1px solid #8b0000;color:#ff6b6b;width:100%;margin-top:6px;" onclick="leaveAlliance()">Leave Alliance</button>
+            `;
+        }
+
+        /** Render the modal when this guild is not in any alliance. */
+        function renderAllianceDisconnected() {
+            document.getElementById('alliance-status-dot').className = 'alliance-status-dot disconnected';
+            document.getElementById('alliance-status-text').textContent = 'Not in an alliance';
+
+            document.getElementById('alliance-modal-content').innerHTML = `
+                <div class="alliance-label">Create a new alliance</div>
+                <p style="font-size:12px;color:#aaa;margin:0 0 8px;">Start a new alliance and invite other guilds to join.</p>
+                <div style="display:flex;gap:8px;margin-bottom:4px;">
+                    <input type="text" id="create-alliance-name" placeholder="Alliance name"
+                        style="flex:1;padding:8px;background:#3d3d3d;border:1px solid #555;border-radius:4px;color:#fff;font-size:13px;">
+                    <button class="modal-btn save" style="flex:0 0 auto;margin-top:0;padding:8px 16px;" onclick="createAlliance()">Create</button>
+                </div>
+
+                <hr class="alliance-divider">
+
+                <div class="alliance-label">Join an existing alliance</div>
+                <p style="font-size:12px;color:#aaa;margin:0 0 8px;">Enter an invite token from another guild leader.</p>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" id="join-alliance-token" placeholder="Invite token"
+                        style="flex:1;padding:8px;background:#3d3d3d;border:1px solid #555;border-radius:4px;color:#fff;font-size:13px;font-family:monospace;">
+                    <button class="modal-btn save" style="flex:0 0 auto;margin-top:0;padding:8px 16px;" onclick="joinAlliance()">Join</button>
+                </div>
+            `;
+        }
+
+        async function createAlliance() {
+            const nameInput = document.getElementById('create-alliance-name');
+            const name = nameInput ? nameInput.value.trim() : '';
+            if (!name) { showToast('Enter an alliance name', 'error'); return; }
+
+            try {
+                const res = await fetch(`${CONFIG.API_BASE}/alliance/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ alliance_name: name })
+                });
+                const data = await res.json();
+                if (!res.ok) { showToast(data.error || 'Failed to create alliance', 'error'); return; }
+                allianceId = data.alliance_id;
+                showToast('Alliance created!', 'success');
+                await loadAllianceInfo();
+                await loadLocations();
+            } catch (err) {
+                showToast('Error creating alliance', 'error');
+            }
+        }
+
+        async function joinAlliance() {
+            const tokenInput = document.getElementById('join-alliance-token');
+            const token = tokenInput ? tokenInput.value.trim() : '';
+            if (!token) { showToast('Enter an invite token', 'error'); return; }
+
+            try {
+                const res = await fetch(`${CONFIG.API_BASE}/alliance/join`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                const data = await res.json();
+                if (!res.ok) { showToast(data.error || 'Failed to join alliance', 'error'); return; }
+                allianceId = data.alliance_id;
+                showToast('Joined alliance!', 'success');
+                await loadAllianceInfo();
+                await loadLocations();
+            } catch (err) {
+                showToast('Error joining alliance', 'error');
+            }
+        }
+
+        async function generateInvite() {
+            try {
+                const res = await fetch(`${CONFIG.API_BASE}/alliance/invite`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{}'
+                });
+                const data = await res.json();
+                if (!res.ok) { showToast(data.error || 'Failed to generate invite', 'error'); return; }
+                const display = document.getElementById('invite-token-display');
+                const box = document.getElementById('invite-token-box');
+                if (display && box) {
+                    box.textContent = data.token;
+                    display.style.display = '';
+                }
+            } catch (err) {
+                showToast('Error generating invite', 'error');
+            }
+        }
+
+        function copyInviteToken() {
+            const box = document.getElementById('invite-token-box');
+            if (!box) return;
+            navigator.clipboard.writeText(box.textContent).then(() => {
+                showToast('Token copied!', 'success');
+            }).catch(() => {
+                // Fallback: select the text
+                const range = document.createRange();
+                range.selectNodeContents(box);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+            });
+        }
+
+        async function leaveAlliance() {
+            if (!confirm('Are you sure you want to leave the alliance? This cannot be undone.')) return;
+
+            try {
+                const res = await fetch(`${CONFIG.API_BASE}/alliance/leave`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) { showToast(data.error || 'Failed to leave alliance', 'error'); return; }
+                allianceId = null;
+                showToast('Left the alliance', 'success');
+                await loadAllianceInfo();
+                await loadLocations();
+            } catch (err) {
+                showToast('Error leaving alliance', 'error');
+            }
+        }
+
+        // Expose for popup button onclick handlers and alliance modal inline handlers
         window.editLocation = editLocation;
         window.deleteLocation = deleteLocation;
+        window.createAlliance = createAlliance;
+        window.joinAlliance = joinAlliance;
+        window.generateInvite = generateInvite;
+        window.copyInviteToken = copyInviteToken;
+        window.leaveAlliance = leaveAlliance;
     </script>
 </body>
 </html>

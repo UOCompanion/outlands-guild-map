@@ -391,6 +391,60 @@ npm run deploy -- --env f-guild
 
 ---
 
+## Alliance Federation (Optional)
+
+Guilds in the same in-game alliance can share location data across their separate map instances. There are two modes:
+
+### Phase 1 — Direct feeds (no hub required)
+
+Each guild exposes a public read endpoint. Other guilds add it to their config as an alliance feed. No shared infrastructure — just static reads.
+
+1. Mark layers as alliance-visible using the **Alliance** checkbox in **Manage Layers**
+2. Other guilds add your URL + key to their `wrangler.toml`:
+
+```toml
+ALLIANCE_FEEDS = '[
+  {"label": "Allied Guild", "url": "https://their-map.workers.dev/api/public/locations", "key": "their-key"}
+]'
+```
+
+3. Coordinate the `ALLIANCE_PUBLIC_KEY` secret out of band (e.g. Discord DM between officers)
+
+### Phase 2 — Alliance hub (recommended for active alliances)
+
+A shared hub worker manages alliance membership and federates location data. Alliance management (create, invite, join, leave) is done from the map UI. No URL/key coordination needed between guilds.
+
+**Prerequisite:** Someone on the alliance sets up and deploys the [Outlands Alliance Hub](https://github.com/your-org/outlands-alliance-hub).
+
+**Per-guild setup:**
+
+1. Register your guild with the hub (one-time curl command — see hub README Step 8)
+
+2. Add to `wrangler.toml`:
+   ```toml
+   [vars]
+   ALLIANCE_HUB_URL = "https://your-alliance-hub.workers.dev"
+   ```
+
+3. Set your API key (the same key you used during registration):
+   ```bash
+   npx wrangler secret put ALLIANCE_API_KEY
+   ```
+
+4. Deploy: `npm run deploy`
+
+5. Open your map → the **Alliance** section appears in the sidebar (editors only) → create or join an alliance from there
+
+6. Mark layers as alliance-shared using the **Alliance** checkbox in **Manage Layers** — those layers will push to the hub automatically on every write
+
+**What guild deployers need to know:**
+- `ALLIANCE_HUB_URL` is a public var (safe to expose — the hub's read endpoints are CORS-open)
+- `ALLIANCE_API_KEY` is a secret — it never reaches the browser
+- `ALLIANCE_ID` does **not** need to be set in `wrangler.toml` — it's stored in KV after you create or join an alliance from the UI
+- Alliance locations appear as read-only layers in your map, grouped under "Alliance" in the location list
+
+---
+
 ## FAQ
 
 ### Do I need a separate Discord application for each guild?

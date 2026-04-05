@@ -147,6 +147,9 @@ export async function handleCreateLocation(request, env) {
             console.warn('KV not available, location created in memory only');
         }
 
+        // Push updated layer to alliance hub (fire-and-forget)
+        pushSharedLayerToHub(env, newLocation.layer, locations).catch(() => {});
+
         return new Response(JSON.stringify({ location: newLocation }), {
             status: 201,
             headers: { 'Content-Type': 'application/json' }
@@ -209,6 +212,9 @@ export async function handleUpdateLocation(request, env, id) {
         // Save to KV
         await saveLocations(env, locations);
 
+        // Push updated layer to alliance hub (fire-and-forget)
+        pushSharedLayerToHub(env, updatedLocation.layer, locations).catch(() => {});
+
         return new Response(JSON.stringify({ location: updatedLocation }), {
             headers: { 'Content-Type': 'application/json' }
         });
@@ -247,6 +253,9 @@ export async function handleDeleteLocation(request, env, id) {
 
     // Save to KV
     await saveLocations(env, locations);
+
+    // Push updated layer to alliance hub (fire-and-forget — sends the remaining locations)
+    pushSharedLayerToHub(env, deleted.layer, locations).catch(() => {});
 
     return new Response(JSON.stringify({
         message: 'Location deleted',
@@ -346,6 +355,9 @@ export async function handleImportLocations(request, env) {
     locations.push(...newLocations);
     await saveLocations(env, locations);
 
+    // Push updated layer to alliance hub (fire-and-forget)
+    pushSharedLayerToHub(env, layer, locations).catch(() => {});
+
     return new Response(JSON.stringify({
         imported: newLocations.length,
         skipped: skipped.length,
@@ -354,6 +366,94 @@ export async function handleImportLocations(request, env) {
         status: 201,
         headers: { 'Content-Type': 'application/json' }
     });
+}
+
+/**
+ * Push all locations on a given layer to the alliance hub.
+ * Called fire-and-forget after every write on an alliance-shared layer.
+ * Failures are logged but never propagate — guild KV is always authoritative.
+ *
+ * Requires env vars: ALLIANCE_HUB_URL, ALLIANCE_API_KEY
+ * Alliance ID resolved from KV alliance_config (set via UI) → ALLIANCE_ID env var
+ * Guild identity is resolved from DISCORD_AUTH_RULES (same as public endpoint).
+ *
+ * @param {Object} env - Cloudflare environment
+ * @param {string} layerId - The layer that was just written
+ * @param {Array} allLocations - Current full locations array (after the write)
+ */
+async function pushSharedLayerToHub(env, layerId, allLocations) {
+    if (!env.ALLIANCE_HUB_URL || !env.ALLIANCE_API_KEY) return;
+
+    // Resolve alliance_id: KV alliance_config (set by UI create/join) takes priority
+    // over the ALLIANCE_ID env var (set at deploy time in wrangler.toml).
+    let allianceId = env.ALLIANCE_ID || null;
+    if (env.MAP_LOCATIONS) {
+        try {
+            const stored = await env.MAP_LOCATIONS.get('alliance_config', { type: 'json' });
+            if (stored && stored.alliance_id) allianceId = stored.alliance_id;
+        } catch { /* ignore */ }
+    }
+    if (!allianceId) return;
+
+    const config = await getConfig(env);
+    const layer = config.layers.find(l => l.id === layerId);
+
+    // Only push if this layer is flagged alliance_shared
+    if (!layer || !layer.alliance_shared) return;
+
+    // Resolve guild identity from DISCORD_AUTH_RULES
+    let guildId = '';
+    try {
+        const authRules = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
+        guildId = authRules.guild_id || '';
+    } catch (e) { /* ignore */ }
+
+    if (!guildId) {
+        console.error('Hub push skipped: could not resolve guild_id from DISCORD_AUTH_RULES');
+        return;
+    }
+
+    // Collect all locations on this layer (full re-push, not delta)
+    const layerLocations = allLocations
+        .filter(loc => loc.layer === layerId)
+        .map(loc => ({
+            location_id: loc.id,
+            name: loc.name,
+            x: loc.x,
+            y: loc.y,
+            layer: loc.layer,
+            icon: loc.icon,
+            color: loc.color
+        }));
+
+    const payload = {
+        guild_id: guildId,
+        alliance_id: allianceId,
+        locations: layerLocations,
+        layers: [{
+            layer_id: layer.id,
+            layer_name: layer.name,
+            color: layer.color,
+            icon: layer.icon || 'dot'
+        }]
+    };
+
+    try {
+        const resp = await fetch(`${env.ALLIANCE_HUB_URL}/api/federation/push`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': env.ALLIANCE_API_KEY
+            },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) {
+            const err = await resp.text().catch(() => '');
+            console.error(`Hub push failed [${resp.status}]:`, err);
+        }
+    } catch (err) {
+        console.error('Hub push error (non-fatal):', err.message);
+    }
 }
 
 /**

@@ -95,11 +95,25 @@ export async function handleGetConfig(request, env) {
         guildId = authRules.guild_id || '';
     } catch (e) { /* ignore */ }
 
+    // Resolve alliance_id: KV alliance_config (set by UI create/join) → ALLIANCE_ID env var → null
+    let allianceId = env.ALLIANCE_ID || null;
+    if (env.MAP_LOCATIONS) {
+        try {
+            const allianceConfig = await env.MAP_LOCATIONS.get('alliance_config', { type: 'json' });
+            if (allianceConfig && allianceConfig.alliance_id) {
+                allianceId = allianceConfig.alliance_id;
+            }
+        } catch (e) { /* ignore */ }
+    }
+
     const response = {
         ...config,
         guild_id: guildId,
         guild_name: env.GUILD_NAME || '',
-        alliance_feeds: allianceFeeds
+        alliance_feeds: allianceFeeds,
+        alliance_hub_url: env.ALLIANCE_HUB_URL || null,
+        alliance_id: allianceId,
+        alliance_hub_configured: !!(env.ALLIANCE_HUB_URL && env.ALLIANCE_API_KEY)
     };
 
     return new Response(JSON.stringify(response), {
