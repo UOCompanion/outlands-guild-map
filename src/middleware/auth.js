@@ -54,12 +54,42 @@ async function verifySignature(value, signature, secret) {
 }
 
 /**
- * Verify authentication and return user data if valid
+ * Verify authentication and return user data if valid.
+ *
+ * Auth order:
+ *  1. X-API-Key header (bot access) — if present and BOT_API_KEY is configured,
+ *     do a constant-time compare and either grant editor access or fail closed.
+ *     Never falls through to session auth when an API key is presented.
+ *  2. map_session cookie (Discord OAuth session) — existing browser flow.
+ *
  * @param {Request} request - Incoming request
  * @param {Object} env - Cloudflare environment with secrets and KV bindings
  * @returns {Promise<Object|null>} User object if authenticated, null otherwise
  */
 export async function requireAuth(request, env) {
+    // --- Bot API key auth (X-API-Key header) ---
+    // Check this before cookie auth so bots don't need a Discord session.
+    const botKey = request.headers.get('X-API-Key');
+    if (botKey !== null && env.BOT_API_KEY) {
+        const encoder = new TextEncoder();
+        const a = encoder.encode(botKey);
+        const b = encoder.encode(env.BOT_API_KEY);
+        // Constant-time compare — prevent timing oracle on key length/content.
+        // Keys of different lengths can never match; pad shorter to longer length
+        // so the loop always runs the same number of iterations.
+        const len = Math.max(a.length, b.length);
+        let diff = a.length ^ b.length;  // non-zero if lengths differ
+        for (let i = 0; i < len; i++) {
+            diff |= (a[i] || 0) ^ (b[i] || 0);
+        }
+        if (diff === 0) {
+            return { permission: 'editor', bot: true, id: 'bot' };
+        }
+        // Wrong key — fail closed. Do NOT fall through to session auth.
+        return null;
+    }
+
+    // --- Discord session cookie auth ---
     // Extract session cookie from request
     const cookies = parseCookies(request.headers.get('Cookie'));
     const sessionCookie = cookies['map_session'];

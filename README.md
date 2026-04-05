@@ -445,6 +445,70 @@ A shared hub worker manages alliance membership and federates location data. All
 
 ---
 
+## Bot Integration (Optional)
+
+Many guilds use a Discord bot to manage locations such as dockmasters. The map worker supports a `BOT_API_KEY` secret that lets a bot write to the location API without a Discord session. When the bot updates a location on an alliance-shared layer, the change is automatically pushed to the hub and visible to all alliance members — no extra bot logic needed.
+
+### How it works
+
+- The bot sends `X-API-Key: <your-key>` on every request instead of a session cookie
+- The worker grants the bot full editor access
+- CRUD operations (`POST`, `PUT`, `DELETE` on `/api/locations`) work exactly as they do for a logged-in editor
+- If the location's layer is marked `alliance_shared`, the hub push fires automatically
+
+### Setup
+
+**1. Generate a strong random key**
+
+```bash
+openssl rand -hex 32
+```
+
+**2. Set the secret on your worker**
+
+```bash
+npx wrangler secret put BOT_API_KEY
+```
+
+Paste the key when prompted. Redeploy (`npm run deploy`) to activate it.
+
+**3. Share the key with your bot operator**
+
+The bot operator adds it to their bot's configuration. It is never stored in `wrangler.toml` and never reaches the browser.
+
+### Bot API contract
+
+Base URL: your worker URL (e.g. `https://map.yourguild.workers.dev`)
+
+Required header on every request:
+```
+X-API-Key: <your-key>
+```
+
+Standard location endpoints work unchanged:
+
+| Method | Path | Action |
+|--------|------|--------|
+| `GET` | `/api/locations` | List all locations |
+| `POST` | `/api/locations` | Create a location |
+| `PUT` | `/api/locations/:id` | Update a location |
+| `DELETE` | `/api/locations/:id` | Delete a location |
+
+Example — update a dockmaster location:
+
+```bash
+curl -X PUT https://map.yourguild.workers.dev/api/locations/abc123 \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-bot-api-key" \
+  -d '{"name":"East Dockmaster","x":4200,"y":3100,"layer":"dockmasters"}'
+```
+
+### Revoking access
+
+Run `npx wrangler secret delete BOT_API_KEY` and redeploy. All requests using the old key will immediately receive `401 Unauthorized`.
+
+---
+
 ## FAQ
 
 ### Do I need a separate Discord application for each guild?

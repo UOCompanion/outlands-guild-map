@@ -47,7 +47,7 @@ const assetManifest = JSON.parse(manifestJSON);
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
+    'Access-Control-Allow-Headers': 'Content-Type, X-API-Key'
 };
 
 // Public routes that don't require authentication
