@@ -61,8 +61,8 @@ MAP_LAYERS = '''
 # KV Namespaces
 # ─────────────────────────────────────────────────────────────
 # Create these with:
-#   wrangler kv:namespace create "MAP_LOCATIONS"
-#   wrangler kv:namespace create "MAP_SESSIONS"
+#   npx wrangler kv namespace create "MAP_LOCATIONS"
+#   npx wrangler kv namespace create "MAP_SESSIONS"
 # Then paste the printed IDs below.
 
 [[kv_namespaces]]
@@ -76,12 +76,45 @@ id = "paste-your-map-sessions-namespace-id-here"
 # ─────────────────────────────────────────────────────────────
 # Secrets (never stored here — set via CLI)
 # ─────────────────────────────────────────────────────────────
-# wrangler secret put DISCORD_CLIENT_SECRET
+# npx wrangler secret put DISCORD_CLIENT_SECRET
 #   → Your Discord app's client secret (OAuth2 page in Developer Portal)
 #
-# wrangler secret put SESSION_SECRET
+# npx wrangler secret put SESSION_SECRET
 #   → Any random 32+ character string. Generate one with:
 #      node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# ─────────────────────────────────────────────────────────────
+# Alliance Federation (optional)
+# ─────────────────────────────────────────────────────────────
+# GUILD_NAME is the display label shown to other alliance members.
+# If omitted, alliance members will see an empty string for your guild name.
+# GUILD_NAME = "My Guild"
+#
+# Phase 2 — Alliance Hub (recommended for active alliances):
+#   ALLIANCE_HUB_URL = "https://your-alliance-hub.workers.dev"
+#   (ALLIANCE_ID is stored in KV after UI create/join — do not set here)
+#
+# Phase 1 — Direct feeds (no hub needed, simpler setup):
+#   ALLIANCE_FEEDS = '[{"label":"Ally Guild","url":"https://their-map.workers.dev/api/public/locations","key":"their-public-key"}]'
+#
+# Alliance secrets — set via CLI, never stored here:
+#   npx wrangler secret put ALLIANCE_PUBLIC_KEY
+#     → Bearer token other guilds use to read your Phase 1 public feed.
+#        Generate: node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+#
+#   npx wrangler secret put ALLIANCE_API_KEY
+#     → API key your worker uses to authenticate writes to the alliance hub (Phase 2).
+#        You choose this key yourself; register it with the hub operator.
+#
+# ─────────────────────────────────────────────────────────────
+# Bot Integration (optional)
+# ─────────────────────────────────────────────────────────────
+# Allows a Discord bot to write locations via X-API-Key header (no Discord session).
+# Bot writes to alliance-shared layers automatically push to the hub.
+#
+#   npx wrangler secret put BOT_API_KEY
+#     → Generate: openssl rand -hex 32
+#        Share with your bot operator. Revoke: npx wrangler secret delete BOT_API_KEY
 
 # ─────────────────────────────────────────────────────────────
 # Static Assets
@@ -107,8 +140,8 @@ local_protocol = "http"
 # Use named environments to deploy multiple independent instances
 # from one wrangler.toml. Each gets its own Worker name, KV, and secrets.
 #
-# Deploy:  wrangler deploy --env second-guild
-# Secrets: wrangler secret put DISCORD_CLIENT_SECRET --env second-guild
+# Deploy:  npx wrangler deploy --env second-guild
+# Secrets: npx wrangler secret put DISCORD_CLIENT_SECRET --env second-guild
 #
 # [env.second-guild]
 # name = "second-guild-map"

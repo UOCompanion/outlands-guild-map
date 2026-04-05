@@ -203,8 +203,8 @@ Each layer field:
 Cloudflare KV is the key-value store where location data, layer config, and sessions are stored.
 
 ```bash
-npx wrangler kv:namespace create "MAP_LOCATIONS"
-npx wrangler kv:namespace create "MAP_SESSIONS"
+npx wrangler kv namespace create "MAP_LOCATIONS"
+npx wrangler kv namespace create "MAP_SESSIONS"
 ```
 
 Each command prints output like:
@@ -332,7 +332,7 @@ To export your current data:
 
 Or via CLI:
 ```bash
-npx wrangler kv:key get --binding MAP_LOCATIONS "locations" > locations-backup.json
+npx wrangler kv key get --binding MAP_LOCATIONS "locations" > locations-backup.json
 ```
 
 ---
@@ -374,8 +374,8 @@ id = "f-guild-sessions-kv-id"
 
 Create KV namespaces per environment:
 ```bash
-npx wrangler kv:namespace create "MAP_LOCATIONS" --env f-guild
-npx wrangler kv:namespace create "MAP_SESSIONS" --env f-guild
+npx wrangler kv namespace create "MAP_LOCATIONS" --env f-guild
+npx wrangler kv namespace create "MAP_SESSIONS" --env f-guild
 ```
 
 Set secrets per environment:
@@ -397,18 +397,34 @@ Guilds in the same in-game alliance can share location data across their separat
 
 ### Phase 1 — Direct feeds (no hub required)
 
-Each guild exposes a public read endpoint. Other guilds add it to their config as an alliance feed. No shared infrastructure — just static reads.
+Each guild exposes a public read endpoint. Other guilds pull from it directly. No shared infrastructure.
 
-1. Mark layers as alliance-visible using the **Alliance** checkbox in **Manage Layers**
-2. Other guilds add your URL + key to their `wrangler.toml`:
+**On your side (the guild being read):**
 
+1. Set a bearer token secret — this is the key other guilds use to read your public feed:
+   ```bash
+   npx wrangler secret put ALLIANCE_PUBLIC_KEY
+   ```
+   Generate a value: `node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`
+
+2. Set your display name so alliance members see a label in their map sidebar:
+   ```toml
+   [vars]
+   GUILD_NAME = "My Guild"
+   ```
+
+3. Deploy: `npm run deploy`
+
+4. Mark layers as alliance-visible using the **Alliance** checkbox in **Manage Layers**
+
+5. Share your worker URL and `ALLIANCE_PUBLIC_KEY` value with allied guild officers (Discord DM between officers)
+
+**On allied guilds' side (guilds reading your feed):**
+
+Add to their `wrangler.toml` and redeploy:
 ```toml
-ALLIANCE_FEEDS = '[
-  {"label": "Allied Guild", "url": "https://their-map.workers.dev/api/public/locations", "key": "their-key"}
-]'
+ALLIANCE_FEEDS = '[{"label":"Your Guild","url":"https://your-map.workers.dev/api/public/locations","key":"your-alliance-public-key"}]'
 ```
-
-3. Coordinate the `ALLIANCE_PUBLIC_KEY` secret out of band (e.g. Discord DM between officers)
 
 ### Phase 2 — Alliance hub (recommended for active alliances)
 
@@ -424,6 +440,7 @@ A shared hub worker manages alliance membership and federates location data. All
    ```toml
    [vars]
    ALLIANCE_HUB_URL = "https://your-alliance-hub.workers.dev"
+   GUILD_NAME = "My Guild"   # displayed to other alliance members in their sidebar
    ```
 
 3. Set your API key (the same key you used during registration):
@@ -525,10 +542,10 @@ Once layers exist in KV (from either the UI or the initial seed), KV takes prece
 To force a full reset back to your `wrangler.toml` defaults:
 ```bash
 # Default environment
-npx wrangler kv:key delete --binding MAP_LOCATIONS "config"
+npx wrangler kv key delete --binding MAP_LOCATIONS "config"
 
 # Named environment
-npx wrangler kv:key delete --binding MAP_LOCATIONS "config" --env f-guild
+npx wrangler kv key delete --binding MAP_LOCATIONS "config" --env f-guild
 ```
 Then redeploy and reload — it will re-seed from `MAP_LAYERS`.
 
@@ -538,12 +555,12 @@ This usually means locations were imported before your layer config was set up c
 
 To confirm, download your location data and check the `layer` field:
 ```bash
-npx wrangler kv:key get --binding MAP_LOCATIONS "locations" --env f-guild > locations-backup.json
+npx wrangler kv key get --binding MAP_LOCATIONS "locations" --env f-guild > locations-backup.json
 ```
 
 **Option A — Re-import from original CSV files** (cleanest):
 ```bash
-npx wrangler kv:key delete --binding MAP_LOCATIONS "locations" --env f-guild
+npx wrangler kv key delete --binding MAP_LOCATIONS "locations" --env f-guild
 ```
 Then re-import each CSV through the UI to the correct layer.
 
@@ -551,7 +568,7 @@ Then re-import each CSV through the UI to the correct layer.
 
 Open `locations-backup.json` and find all entries where `"layer"` has the wrong value (e.g. `"layer-1"`). Change them to the correct layer ID (e.g. `"f_dockmasters"`), then restore:
 ```bash
-npx wrangler kv:key put --binding MAP_LOCATIONS "locations" --path locations-backup.json --env f-guild
+npx wrangler kv key put --binding MAP_LOCATIONS "locations" --path locations-backup.json --env f-guild
 ```
 
 The layer ID must exactly match the `id` field of a layer in your config. Once corrected, the layer checkboxes will toggle those markers as expected.
@@ -581,14 +598,14 @@ The layer ID must exactly match the `id` field of a layer in your config. Once c
 
 **Backup:**
 ```bash
-npx wrangler kv:key get --binding MAP_LOCATIONS "locations" > locations-backup.json
-npx wrangler kv:key get --binding MAP_LOCATIONS "config" > config-backup.json
+npx wrangler kv key get --binding MAP_LOCATIONS "locations" > locations-backup.json
+npx wrangler kv key get --binding MAP_LOCATIONS "config" > config-backup.json
 ```
 
 **Restore:**
 ```bash
-npx wrangler kv:key put --binding MAP_LOCATIONS "locations" --path locations-backup.json
-npx wrangler kv:key put --binding MAP_LOCATIONS "config" --path config-backup.json
+npx wrangler kv key put --binding MAP_LOCATIONS "locations" --path locations-backup.json
+npx wrangler kv key put --binding MAP_LOCATIONS "config" --path config-backup.json
 ```
 
 ### How do I update Wrangler?
