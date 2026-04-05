@@ -14,12 +14,20 @@ import {
     handleUpdateLocation,
     handleDeleteLocation,
     handleExportLocations,
-    handleImportLocations
+    handleImportLocations,
+    handleGetPublicLocations
 } from './api/locations.js';
 import {
     handleGetConfig,
     handleUpdateConfig
 } from './api/config.js';
+import {
+    handleGetAllianceInfo,
+    handleCreateAlliance,
+    handleJoinAlliance,
+    handleCreateAllianceInvite,
+    handleLeaveAlliance
+} from './api/alliance.js';
 import {
     handleLogin,
     handleCallback,
@@ -93,6 +101,14 @@ export default {
         // Handle authentication routes (public)
         if (path.startsWith('/auth/')) {
             return handleAuthRequest(request, env, path);
+        }
+
+        // Public federation endpoint — bearer token auth, no Discord session required
+        if (path === '/api/public/locations' && method === 'GET') {
+            const resp = await handleGetPublicLocations(request, env);
+            const newHeaders = new Headers(resp.headers);
+            Object.entries(corsHeaders).forEach(([k, v]) => newHeaders.set(k, v));
+            return new Response(resp.body, { status: resp.status, headers: newHeaders });
         }
 
         // Check if this is a public path
@@ -214,6 +230,22 @@ async function handleApiRequest(request, env, path, method, user) {
         else if (path.match(/^\/api\/locations\/[^/]+$/) && method === 'DELETE') {
             const id = path.split('/').pop();
             response = isEditor ? await handleDeleteLocation(request, env, id) : editorOnlyResponse();
+        }
+        // Alliance management — proxied to hub (editors only for writes)
+        else if (path === '/api/alliance/info' && method === 'GET') {
+            response = await handleGetAllianceInfo(request, env);
+        }
+        else if (path === '/api/alliance/create' && method === 'POST') {
+            response = isEditor ? await handleCreateAlliance(request, env) : editorOnlyResponse();
+        }
+        else if (path === '/api/alliance/join' && method === 'POST') {
+            response = isEditor ? await handleJoinAlliance(request, env) : editorOnlyResponse();
+        }
+        else if (path === '/api/alliance/invite' && method === 'POST') {
+            response = isEditor ? await handleCreateAllianceInvite(request, env) : editorOnlyResponse();
+        }
+        else if (path === '/api/alliance/leave' && method === 'DELETE') {
+            response = isEditor ? await handleLeaveAlliance(request, env) : editorOnlyResponse();
         }
         // Unknown API endpoint
         else {

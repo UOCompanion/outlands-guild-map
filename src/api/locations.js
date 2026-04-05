@@ -147,6 +147,9 @@ export async function handleCreateLocation(request, env) {
             console.warn('KV not available, location created in memory only');
         }
 
+        // Push updated layer to alliance hub (fire-and-forget)
+        pushSharedLayerToHub(env, newLocation.layer, locations).catch(() => {});
+
         return new Response(JSON.stringify({ location: newLocation }), {
             status: 201,
             headers: { 'Content-Type': 'application/json' }
@@ -209,6 +212,9 @@ export async function handleUpdateLocation(request, env, id) {
         // Save to KV
         await saveLocations(env, locations);
 
+        // Push updated layer to alliance hub (fire-and-forget)
+        pushSharedLayerToHub(env, updatedLocation.layer, locations).catch(() => {});
+
         return new Response(JSON.stringify({ location: updatedLocation }), {
             headers: { 'Content-Type': 'application/json' }
         });
@@ -247,6 +253,9 @@ export async function handleDeleteLocation(request, env, id) {
 
     // Save to KV
     await saveLocations(env, locations);
+
+    // Push updated layer to alliance hub (fire-and-forget — sends the remaining locations)
+    pushSharedLayerToHub(env, deleted.layer, locations).catch(() => {});
 
     return new Response(JSON.stringify({
         message: 'Location deleted',
@@ -346,12 +355,164 @@ export async function handleImportLocations(request, env) {
     locations.push(...newLocations);
     await saveLocations(env, locations);
 
+    // Push updated layer to alliance hub (fire-and-forget)
+    pushSharedLayerToHub(env, layer, locations).catch(() => {});
+
     return new Response(JSON.stringify({
         imported: newLocations.length,
         skipped: skipped.length,
         skippedRows: skipped
     }), {
         status: 201,
+        headers: { 'Content-Type': 'application/json' }
+    });
+}
+
+/**
+ * Push all locations on a given layer to the alliance hub.
+ * Called fire-and-forget after every write on an alliance-shared layer.
+ * Failures are logged but never propagate — guild KV is always authoritative.
+ *
+ * Requires env vars: ALLIANCE_HUB_URL, ALLIANCE_API_KEY
+ * Alliance ID resolved from KV alliance_config (set via UI) → ALLIANCE_ID env var
+ * Guild identity is resolved from DISCORD_AUTH_RULES (same as public endpoint).
+ *
+ * @param {Object} env - Cloudflare environment
+ * @param {string} layerId - The layer that was just written
+ * @param {Array} allLocations - Current full locations array (after the write)
+ */
+async function pushSharedLayerToHub(env, layerId, allLocations) {
+    if (!env.ALLIANCE_HUB_URL || !env.ALLIANCE_API_KEY) return;
+
+    // Resolve alliance_id: KV alliance_config (set by UI create/join) takes priority
+    // over the ALLIANCE_ID env var (set at deploy time in wrangler.toml).
+    let allianceId = env.ALLIANCE_ID || null;
+    if (env.MAP_LOCATIONS) {
+        try {
+            const stored = await env.MAP_LOCATIONS.get('alliance_config', { type: 'json' });
+            if (stored && stored.alliance_id) allianceId = stored.alliance_id;
+        } catch { /* ignore */ }
+    }
+    if (!allianceId) return;
+
+    const config = await getConfig(env);
+    const layer = config.layers.find(l => l.id === layerId);
+
+    // Only push if this layer is flagged alliance_shared
+    if (!layer || !layer.alliance_shared) return;
+
+    // Resolve guild identity from DISCORD_AUTH_RULES
+    let guildId = '';
+    try {
+        const authRules = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
+        guildId = authRules.guild_id || '';
+    } catch (e) { /* ignore */ }
+
+    if (!guildId) {
+        console.error('Hub push skipped: could not resolve guild_id from DISCORD_AUTH_RULES');
+        return;
+    }
+
+    // Collect all locations on this layer (full re-push, not delta)
+    const layerLocations = allLocations
+        .filter(loc => loc.layer === layerId)
+        .map(loc => ({
+            location_id: loc.id,
+            name: loc.name,
+            x: loc.x,
+            y: loc.y,
+            layer: loc.layer,
+            icon: loc.icon,
+            color: loc.color
+        }));
+
+    const payload = {
+        guild_id: guildId,
+        alliance_id: allianceId,
+        locations: layerLocations,
+        layers: [{
+            layer_id: layer.id,
+            layer_name: layer.name,
+            color: layer.color,
+            icon: layer.icon || 'dot'
+        }]
+    };
+
+    try {
+        const resp = await fetch(`${env.ALLIANCE_HUB_URL}/api/federation/push`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': env.ALLIANCE_API_KEY
+            },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) {
+            const err = await resp.text().catch(() => '');
+            console.error(`Hub push failed [${resp.status}]:`, err);
+        }
+    } catch (err) {
+        console.error('Hub push error (non-fatal):', err.message);
+    }
+}
+
+/**
+ * Handle GET /api/public/locations
+ * Returns locations on alliance-shared layers without requiring Discord auth.
+ * Validated by a Bearer token matching the ALLIANCE_PUBLIC_KEY env var.
+ * Location IDs are omitted — consumers get display data only, no mutation handles.
+ * Response includes guild_id and guild_name for the consuming map to namespace layers.
+ * @param {Request} request - Incoming request
+ * @param {Object} env - Cloudflare environment
+ * @returns {Response} JSON response with guild info and locations array
+ */
+export async function handleGetPublicLocations(request, env) {
+    // Validate bearer token against ALLIANCE_PUBLIC_KEY
+    const authHeader = request.headers.get('Authorization') || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+
+    if (!env.ALLIANCE_PUBLIC_KEY || token !== env.ALLIANCE_PUBLIC_KEY) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    // Get config to find which layers are alliance-shared
+    const config = await getConfig(env);
+    const sharedLayerIds = new Set(
+        config.layers.filter(l => l.alliance_shared).map(l => l.id)
+    );
+
+    if (sharedLayerIds.size === 0) {
+        return new Response(JSON.stringify({
+            guild_id: env.DISCORD_GUILD_ID || '',
+            guild_name: env.GUILD_NAME || '',
+            locations: []
+        }), {
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    // Load all locations and filter to shared layers only
+    const allLocs = await getLocations(env);
+    const sharedLocs = allLocs
+        .filter(loc => sharedLayerIds.has(loc.layer))
+        .map(({ id: _id, ...rest }) => rest); // strip id — read-only consumers don't need it
+
+    // Resolve guild identity — guild_id from DISCORD_AUTH_RULES, name from GUILD_NAME
+    let guildId = '';
+    try {
+        const authRules = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
+        guildId = authRules.guild_id || '';
+    } catch (e) { /* ignore parse errors */ }
+    const guildName = env.GUILD_NAME || '';
+
+    return new Response(JSON.stringify({
+        guild_id: guildId,
+        guild_name: guildName,
+        locations: sharedLocs
+    }), {
         headers: { 'Content-Type': 'application/json' }
     });
 }
