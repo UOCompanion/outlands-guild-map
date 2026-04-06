@@ -2650,6 +2650,9 @@
             document.getElementById('alliance-modal-overlay').addEventListener('click', (e) => {
                 if (e.target === document.getElementById('alliance-modal-overlay')) closeAllianceModal();
             });
+
+            // Load status immediately so the sidebar dot reflects current alliance state on page load
+            loadAllianceInfo();
         }
 
         function openAllianceModal() {
