@@ -43,14 +43,19 @@ async function setAllianceId(env, allianceId) {
 }
 
 async function hubFetch(env, path, options = {}) {
-    return fetch(`${env.ALLIANCE_HUB_URL}${path}`, {
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': env.ALLIANCE_API_KEY,
-            ...(options.headers || {})
-        }
-    });
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-API-Key': env.ALLIANCE_API_KEY,
+        ...(options.headers || {})
+    };
+
+    // Prefer Cloudflare Service Binding (Worker-to-Worker, bypasses workers.dev restriction).
+    // Falls back to public URL fetch for local dev or non-binding deployments.
+    if (env.ALLIANCE_HUB) {
+        return env.ALLIANCE_HUB.fetch(new Request(`https://hub${path}`, { ...options, headers }));
+    }
+
+    return fetch(`${env.ALLIANCE_HUB_URL}${path}`, { ...options, headers });
 }
 
 function jsonErr(msg, status = 400) {

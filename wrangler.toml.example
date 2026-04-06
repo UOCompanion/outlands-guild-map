@@ -90,9 +90,17 @@ id = "paste-your-map-sessions-namespace-id-here"
 # If omitted, alliance members will see an empty string for your guild name.
 # GUILD_NAME = "My Guild"
 #
-# ALLIANCE_HUB_URL — URL of the shared alliance hub worker.
+# ALLIANCE_HUB_URL — URL of the shared alliance hub worker (used as fallback for
+# local dev; production uses the Service Binding below).
 # ALLIANCE_ID is stored in KV after you create/join from the UI — do not set here.
 # ALLIANCE_HUB_URL = "https://your-alliance-hub.workers.dev"
+#
+# IMPORTANT: Cloudflare Workers cannot call other workers.dev URLs via fetch().
+# Use a Service Binding instead. Add this to your named environment:
+#
+#   [[env.your-guild.services]]
+#   binding = "ALLIANCE_HUB"
+#   service = "outlands-alliance-hub"   # must match the hub's wrangler.toml `name`
 #
 # Alliance secret — set via CLI, never stored here:
 #   npx wrangler secret put ALLIANCE_API_KEY
