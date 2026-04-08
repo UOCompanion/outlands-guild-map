@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "generate-tiles": "node scripts/generate-tiles.mjs"
   },
   "keywords": [
     "uo-outlands",
@@ -16,6 +17,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "sharp": "^0.33.5",
     "wrangler": "^4.0.0"
   },
   "dependencies": {

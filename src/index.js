@@ -60,7 +60,7 @@ const PUBLIC_PATHS = [
 ];
 
 // Static asset extensions that don't require auth
-const PUBLIC_EXTENSIONS = ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.woff', '.woff2'];
+const PUBLIC_EXTENSIONS = ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.woff', '.woff2', '.webp'];
 
 /**
  * Check if a path is public (doesn't require authentication)
@@ -288,6 +288,15 @@ async function handleApiRequest(request, env, path, method, user) {
 /**
  * Handle static asset requests using KV asset handler
  */
+// Tiles change only when regenerated and redeployed — cache aggressively.
+// Everything else uses kv-asset-handler defaults (2h edge TTL, no browser TTL).
+function cacheControl(req) {
+    if (new URL(req.url).pathname.startsWith('/tiles/')) {
+        return { edgeTTL: 30 * 24 * 60 * 60, browserTTL: 30 * 24 * 60 * 60 };
+    }
+    return {};
+}
+
 async function handleStaticAssets(request, env, ctx) {
     try {
         return await getAssetFromKV(
@@ -297,7 +306,8 @@ async function handleStaticAssets(request, env, ctx) {
             },
             {
                 ASSET_NAMESPACE: env.__STATIC_CONTENT,
-                ASSET_MANIFEST: assetManifest
+                ASSET_MANIFEST: assetManifest,
+                cacheControl
             }
         );
 

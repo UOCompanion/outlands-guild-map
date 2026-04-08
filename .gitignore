@@ -11,6 +11,9 @@ wrangler.toml
 # Dependencies
 node_modules/
 
+# Generated map tiles — run `npm run generate-tiles` to recreate
+public/tiles/
+
 # Claude Code project instructions
 CLAUDE.md
 federation-spec-revised.md

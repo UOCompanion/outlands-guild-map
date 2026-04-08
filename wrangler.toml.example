@@ -123,6 +123,8 @@ id = "paste-your-map-sessions-namespace-id-here"
 
 [site]
 bucket = "./public"
+# gamemap.png is the tile generation source — tiles in /tiles/ are served instead
+exclude = ["gamemap.png"]
 
 # ─────────────────────────────────────────────────────────────
 # Local Development
