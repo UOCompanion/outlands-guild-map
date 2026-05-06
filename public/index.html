@@ -1197,7 +1197,7 @@
             <h3>Manage Layers</h3>
             <p class="layer-manager-hint">
                 Rename, recolor, or set the icon name for each layer. The icon name is used in CSV exports (e.g. <code>dot</code>, <code>greendot</code>, <code>reddot</code>).
-                The layer ID (slug) is fixed after creation. Deleting a layer does <strong>not</strong> delete its locations.
+                The layer ID (slug) is fixed after creation. Deleting a layer will also <strong>remove all its locations</strong>.
             </p>
             <div class="layer-manager-list" id="layer-manager-list"></div>
             <button class="add-layer-btn" id="btn-add-layer">+ Add New Layer</button>
@@ -1300,6 +1300,46 @@
         let userPermission = 'viewer';   // 'editor' or 'viewer' — set after loadUserInfo()
 
         // ─────────────────────────────────────────────────────
+        // UI State Persistence (localStorage)
+        // ─────────────────────────────────────────────────────
+
+        const UI_STATE_KEY = 'map_ui_state';
+
+        function loadUiState() {
+            try {
+                return JSON.parse(localStorage.getItem(UI_STATE_KEY)) || {};
+            } catch { return {}; }
+        }
+
+        function saveUiState(patch) {
+            const state = { ...loadUiState(), ...patch };
+            localStorage.setItem(UI_STATE_KEY, JSON.stringify(state));
+        }
+
+        function getLayerToggleStates() {
+            return loadUiState().layerToggles || {};
+        }
+
+        function saveLayerToggle(layerId, checked) {
+            const toggles = getLayerToggleStates();
+            toggles[layerId] = checked;
+            saveUiState({ layerToggles: toggles });
+        }
+
+        function isLayerChecked(layerId) {
+            const toggles = getLayerToggleStates();
+            return toggles.hasOwnProperty(layerId) ? toggles[layerId] : true;
+        }
+
+        function getCollapsedGroups() {
+            return loadUiState().collapsedGroups || [];
+        }
+
+        function saveCollapsedGroups(groups) {
+            saveUiState({ collapsedGroups: groups });
+        }
+
+        // ─────────────────────────────────────────────────────
         // Initialization
         // ─────────────────────────────────────────────────────
 
@@ -1358,17 +1398,19 @@
 
         /**
          * Render the sidebar layer checkboxes from layerConfig.
-         * Always checked by default. Ocean Grid is handled statically in HTML.
+         * Restores checked state from localStorage (defaults to checked for new layers).
+         * Ocean Grid is handled statically in HTML.
          */
         function renderLayerToggles() {
             const container = document.getElementById('layer-toggles-container');
             container.innerHTML = '';
 
             layerConfig.forEach(layer => {
+                const checked = isLayerChecked(layer.id);
                 const item = document.createElement('div');
                 item.className = 'layer-item';
                 item.innerHTML = `
-                    <input type="checkbox" id="layer-${layer.id}" checked>
+                    <input type="checkbox" id="layer-${layer.id}" ${checked ? 'checked' : ''}>
                     <label for="layer-${layer.id}">${escapeHtml(layer.name)}</label>
                     <div class="color-indicator" style="background: ${layer.color};"></div>
                 `;
@@ -1480,15 +1522,16 @@
             // Always create the ocean-grid layer group (static)
             mapLayers['ocean-grid'] = L.layerGroup();
             const oceanCheckbox = document.getElementById('layer-ocean-grid');
-            if (oceanCheckbox && oceanCheckbox.checked) {
+            const oceanChecked = isLayerChecked('ocean-grid');
+            if (oceanCheckbox) oceanCheckbox.checked = oceanChecked;
+            if (oceanChecked) {
                 mapLayers['ocean-grid'].addTo(map);
             }
 
             // Create a layer group for each configured layer
             layerConfig.forEach(layer => {
                 mapLayers[layer.id] = L.layerGroup();
-                const checkbox = document.getElementById(`layer-${layer.id}`);
-                if (checkbox && checkbox.checked) {
+                if (isLayerChecked(layer.id)) {
                     mapLayers[layer.id].addTo(map);
                 }
             });
@@ -1505,6 +1548,7 @@
             const oceanCheckbox = document.getElementById('layer-ocean-grid');
             if (oceanCheckbox) {
                 oceanCheckbox.addEventListener('change', function() {
+                    saveLayerToggle('ocean-grid', this.checked);
                     if (this.checked) {
                         map.addLayer(mapLayers['ocean-grid']);
                     } else {
@@ -1518,6 +1562,7 @@
                 const checkbox = document.getElementById(`layer-${layer.id}`);
                 if (checkbox) {
                     checkbox.addEventListener('change', function() {
+                        saveLayerToggle(layer.id, this.checked);
                         if (!mapLayers[layer.id]) return;
                         if (this.checked) {
                             map.addLayer(mapLayers[layer.id]);
@@ -1596,14 +1641,23 @@
             const sidebar = document.getElementById('sidebar');
             const container = document.getElementById('app-container');
 
+            // Restore persisted state
+            const uiState = loadUiState();
+            if (uiState.sidebarHidden) {
+                sidebar.classList.add('hidden');
+                container.classList.add('sidebar-hidden');
+            }
+
             toggleBtn.addEventListener('click', () => {
                 sidebar.classList.add('hidden');
                 container.classList.add('sidebar-hidden');
+                saveUiState({ sidebarHidden: true });
             });
 
             showBtn.addEventListener('click', () => {
                 sidebar.classList.remove('hidden');
                 container.classList.remove('sidebar-hidden');
+                saveUiState({ sidebarHidden: false });
             });
 
             document.getElementById('btn-add-mode').addEventListener('click', toggleAddMode);
@@ -1851,10 +1905,21 @@
             overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
             document.getElementById('location-form').addEventListener('submit', handleFormSubmit);
             document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') {
-                    closeModal();
-                    if (isAddMode) toggleAddMode();
+                if (e.key !== 'Escape') return;
+                // Close only the topmost open modal
+                if (document.getElementById('alliance-modal-overlay').classList.contains('active')) {
+                    closeAllianceModal(); return;
                 }
+                if (document.getElementById('layer-manager-overlay').classList.contains('active')) {
+                    closeLayerManagerModal(); return;
+                }
+                if (document.getElementById('import-modal-overlay').classList.contains('active')) {
+                    closeImportModal(); return;
+                }
+                if (document.getElementById('modal-overlay').classList.contains('active')) {
+                    closeModal(); return;
+                }
+                if (isAddMode) toggleAddMode();
             });
         }
 
@@ -2371,20 +2436,35 @@
             const minimizeBtn = document.getElementById('minimize-list-panel');
             const container = document.getElementById('app-container');
 
+            // Restore persisted state
+            const uiState = loadUiState();
+            if (uiState.listPanelHidden) {
+                panel.classList.add('hidden');
+                container.classList.add('list-panel-hidden');
+            }
+            if (uiState.listPanelMinimized) {
+                panel.classList.add('minimized');
+                minimizeBtn.innerHTML = '&#43;';
+                minimizeBtn.title = 'Expand';
+            }
+
             minimizeBtn.addEventListener('click', () => {
                 const isMinimized = panel.classList.toggle('minimized');
                 minimizeBtn.innerHTML = isMinimized ? '&#43;' : '&#8722;';
                 minimizeBtn.title = isMinimized ? 'Expand' : 'Minimize';
+                saveUiState({ listPanelMinimized: isMinimized });
             });
 
             document.getElementById('close-list-panel').addEventListener('click', () => {
                 panel.classList.add('hidden');
                 container.classList.add('list-panel-hidden');
+                saveUiState({ listPanelHidden: true });
             });
 
             document.getElementById('show-list-panel').addEventListener('click', () => {
                 panel.classList.remove('hidden');
                 container.classList.remove('list-panel-hidden');
+                saveUiState({ listPanelHidden: false });
             });
 
             document.getElementById('location-search').addEventListener('input', renderLocationList);
@@ -2461,6 +2541,14 @@
             const itemsDiv = document.createElement('div');
             itemsDiv.className = 'layer-group-items';
 
+            // Restore collapse state from localStorage
+            const collapsedGroups = getCollapsedGroups();
+            const startCollapsed = collapsedGroups.includes(layerId);
+            if (startCollapsed) {
+                itemsDiv.style.display = 'none';
+                collapseIcon.innerHTML = '&#9656;';
+            }
+
             locs.forEach(loc => {
                 const item = document.createElement('div');
                 item.className = 'location-list-item';
@@ -2495,6 +2583,15 @@
                 const collapsed = itemsDiv.style.display === 'none';
                 itemsDiv.style.display = collapsed ? '' : 'none';
                 collapseIcon.innerHTML = collapsed ? '&#9662;' : '&#9656;';
+
+                // Persist collapse state
+                const groups = getCollapsedGroups();
+                if (collapsed) {
+                    saveCollapsedGroups(groups.filter(g => g !== layerId));
+                } else {
+                    if (!groups.includes(layerId)) groups.push(layerId);
+                    saveCollapsedGroups(groups);
+                }
             });
 
             groupDiv.appendChild(headerDiv);
@@ -2622,23 +2719,27 @@
             if (!marker) return;
             const el = marker.getElement();
             if (!el) return;
+            const inner = el.querySelector('div');
+            if (!inner) return;
             if (highlight) {
-                el.style.filter = 'drop-shadow(0 0 5px #ffd700) drop-shadow(0 0 2px #fff)';
-                el.style.transform = 'scale(1.6)';
+                inner.style.filter = 'drop-shadow(0 0 5px #ffd700) drop-shadow(0 0 2px #fff)';
+                inner.style.transform = 'scale(1.6)';
                 el.style.zIndex = '9999';
             } else {
-                el.style.filter = '';
-                el.style.transform = '';
+                inner.style.filter = '';
+                inner.style.transform = '';
                 el.style.zIndex = '';
             }
         }
 
         function panToLocation(id) {
-            const location = allLocations.find(l => l.id === id);
+            const location = allLocations.find(l => l.id === id)
+                || allianceLocations.find(l => l.id === id);
             const marker = markerMap.get(id);
             if (!location || !marker) return;
             const mapY = CONFIG.IMAGE_HEIGHT - location.y;
-            map.flyTo([mapY, location.x], 1, { duration: 0.4 });
+            const zoom = Math.max(map.getZoom(), 1);
+            map.flyTo([mapY, location.x], zoom, { duration: 0.4 });
             setTimeout(() => marker.openPopup(), 500);
         }
 
