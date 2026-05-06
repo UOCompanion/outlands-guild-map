@@ -91,8 +91,9 @@ export async function handleGetConfig(request, env) {
     // Parse guild_id from DISCORD_AUTH_RULES for federation identification
     let guildId = '';
     try {
-        const authRules = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
-        guildId = authRules.guild_id || '';
+        const parsed = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
+        const first = Array.isArray(parsed) ? parsed[0] : parsed;
+        guildId = (first && first.guild_id) || '';
     } catch (e) { /* ignore */ }
 
     // Resolve alliance_id: KV alliance_config (set by UI create/join) → ALLIANCE_ID env var → null

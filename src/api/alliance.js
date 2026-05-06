@@ -19,8 +19,9 @@
 
 function getGuildId(env) {
     try {
-        const rules = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
-        return rules.guild_id || '';
+        const parsed = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
+        const first = Array.isArray(parsed) ? parsed[0] : parsed;
+        return (first && first.guild_id) || '';
     } catch {
         return '';
     }

@@ -404,8 +404,9 @@ async function pushSharedLayerToHub(env, layerId, allLocations) {
     // Resolve guild identity from DISCORD_AUTH_RULES
     let guildId = '';
     try {
-        const authRules = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
-        guildId = authRules.guild_id || '';
+        const parsed = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
+        const first = Array.isArray(parsed) ? parsed[0] : parsed;
+        guildId = (first && first.guild_id) || '';
     } catch (e) { /* ignore */ }
 
     if (!guildId) {
@@ -503,8 +504,9 @@ export async function handleGetPublicLocations(request, env) {
     // Resolve guild identity — guild_id from DISCORD_AUTH_RULES, name from GUILD_NAME
     let guildId = '';
     try {
-        const authRules = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
-        guildId = authRules.guild_id || '';
+        const parsed = JSON.parse(env.DISCORD_AUTH_RULES || '{}');
+        const first = Array.isArray(parsed) ? parsed[0] : parsed;
+        guildId = (first && first.guild_id) || '';
     } catch (e) { /* ignore parse errors */ }
     const guildName = env.GUILD_NAME || '';
 

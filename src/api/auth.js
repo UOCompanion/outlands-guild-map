@@ -3,18 +3,22 @@
  *
  * Handles Discord OAuth flow, session management, and role-based access control.
  *
- * DISCORD_AUTH_RULES is a single JSON object:
- *   {
- *     "guild_id": "123456789",
- *     "editor_role_ids": ["role-id-1"],   -- full read/write access
- *     "viewer_role_ids": ["role-id-2"]    -- read-only access; [] = any guild member
- *   }
+ * DISCORD_AUTH_RULES is a JSON object OR array of objects:
+ *   { "guild_id": "123", "editor_role_ids": ["r1"], "viewer_role_ids": ["r2"] }
+ *   — or —
+ *   [
+ *     { "guild_id": "123", "editor_role_ids": ["r1"], "viewer_role_ids": [] },
+ *     { "guild_id": "456", "editor_role_ids": ["r3"], "viewer_role_ids": [] }
+ *   ]
  *
- * Permission resolution (first match wins):
+ * When multiple guilds are configured the callback tries each guild in order.
+ * The highest permission found wins (editor > viewer).
+ *
+ * Permission resolution per guild (first match wins):
  *   1. User has any editor_role_ids role  → permission = "editor"
  *   2. viewer_role_ids is empty           → permission = "viewer" (any member)
  *   3. User has any viewer_role_ids role  → permission = "viewer"
- *   4. None of the above                  → denied
+ *   4. None of the above                  → denied for this guild
  */
 
 // Session expiry time: 7 days in seconds
@@ -27,25 +31,33 @@ const DISCORD_OAUTH_TOKEN = 'https://discord.com/api/oauth2/token';
 
 /**
  * Parse and validate the DISCORD_AUTH_RULES env var.
- * Returns the rule object, or null if missing or malformed.
+ * Supports a single object or an array of objects.
  * @param {Object} env - Cloudflare environment
- * @returns {{guild_id: string, editor_role_ids: string[], viewer_role_ids: string[]}|null}
+ * @returns {Array<{guild_id: string, editor_role_ids: string[], viewer_role_ids: string[]}>|null}
  */
-function getAuthRule(env) {
+function getAuthRules(env) {
     if (!env.DISCORD_AUTH_RULES) {
         console.error('DISCORD_AUTH_RULES not configured');
         return null;
     }
     try {
-        const rule = JSON.parse(env.DISCORD_AUTH_RULES);
-        if (!rule.guild_id) {
-            console.error('DISCORD_AUTH_RULES missing required guild_id field');
-            return null;
+        const parsed = JSON.parse(env.DISCORD_AUTH_RULES);
+        const rawRules = Array.isArray(parsed) ? parsed : [parsed];
+
+        const rules = [];
+        for (const rule of rawRules) {
+            if (!rule.guild_id) {
+                console.error('DISCORD_AUTH_RULES entry missing required guild_id field');
+                continue;
+            }
+            rules.push({
+                guild_id: rule.guild_id,
+                editor_role_ids: rule.editor_role_ids || [],
+                viewer_role_ids: rule.viewer_role_ids || [],
+            });
         }
-        // Ensure arrays exist even if omitted from config
-        rule.editor_role_ids = rule.editor_role_ids || [];
-        rule.viewer_role_ids = rule.viewer_role_ids || [];
-        return rule;
+
+        return rules.length > 0 ? rules : null;
     } catch (e) {
         console.error('Failed to parse DISCORD_AUTH_RULES:', e.message);
         return null;
@@ -269,38 +281,46 @@ export async function handleCallback(request, env) {
 
     const userData = await userResponse.json();
 
-    // Load and validate auth rule
-    const rule = getAuthRule(env);
-    if (!rule) {
+    // Load and validate auth rules (supports single guild or array of guilds)
+    const rules = getAuthRules(env);
+    if (!rules) {
         return redirectToUnauthorized(request, 'misconfigured');
     }
 
-    // Fetch this user's membership in the configured guild
-    const memberResponse = await fetch(
-        `${DISCORD_API}/users/@me/guilds/${rule.guild_id}/member`,
-        { headers: { 'Authorization': `Bearer ${accessToken}` } }
-    );
+    // Try each guild rule — keep the highest permission found (editor > viewer)
+    let bestPermission = null;
+    let bestMemberData = null;
 
-    if (memberResponse.status === 404) {
-        // User is not in the guild
-        return redirectToUnauthorized(request, 'not_member');
+    for (const rule of rules) {
+        const memberResponse = await fetch(
+            `${DISCORD_API}/users/@me/guilds/${rule.guild_id}/member`,
+            { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        );
+
+        if (!memberResponse.ok) continue;
+
+        const memberData = await memberResponse.json();
+        const permission = getPermissionLevel(memberData, rule);
+
+        if (!permission) continue;
+
+        if (permission === 'editor') {
+            bestPermission = 'editor';
+            bestMemberData = memberData;
+            break;
+        }
+
+        if (!bestPermission) {
+            bestPermission = 'viewer';
+            bestMemberData = memberData;
+        }
     }
 
-    if (!memberResponse.ok) {
-        console.error('Failed to fetch member info:', memberResponse.status);
-        return new Response('Failed to verify guild membership', {
-            status: 500,
-            headers: { 'Content-Type': 'text/plain' }
-        });
-    }
-
-    const memberData = await memberResponse.json();
-
-    // Determine permission level
-    const permission = getPermissionLevel(memberData, rule);
-    if (!permission) {
+    if (!bestPermission || !bestMemberData) {
         return redirectToUnauthorized(request, 'no_role');
     }
+
+    const permission = bestPermission;
 
     // Create session
     const sessionId = generateSecureToken(32);
@@ -310,7 +330,7 @@ export async function handleCallback(request, env) {
         globalName: userData.global_name || userData.username,
         avatar: userData.avatar,
         discriminator: userData.discriminator,
-        roles: memberData.roles,
+        roles: bestMemberData.roles,
         permission: permission,   // 'editor' or 'viewer'
         expiresAt: Date.now() + (SESSION_TTL * 1000)
     };
