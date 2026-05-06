@@ -107,7 +107,7 @@ DISCORD_CLIENT_ID = "your-client-id-here"
 
 ### Auth rules
 
-`DISCORD_AUTH_RULES` controls who can log in and what they can do. Each deployment is tied to **one Discord server** with two permission levels:
+`DISCORD_AUTH_RULES` controls who can log in and what they can do. Each entry is tied to a Discord server with two permission levels:
 
 - **editor** — full access: add, edit, delete locations, manage layers
 - **viewer** — read-only: can see the map and export, cannot make changes
@@ -155,7 +155,25 @@ DISCORD_AUTH_RULES = '''
 '''
 ```
 
-> Editor roles are checked first. If a user has both an editor role and a viewer role, they get editor access.
+**Multiple Discord servers** — use a JSON array to grant access from more than one guild. The user gets the highest permission found across all guilds (editor wins over viewer). The first entry is used as the federation identity.
+```toml
+DISCORD_AUTH_RULES = '''
+[
+    {
+        "guild_id": "MAIN_GUILD_ID",
+        "editor_role_ids": ["OFFICER_ROLE_ID"],
+        "viewer_role_ids": []
+    },
+    {
+        "guild_id": "ALLY_GUILD_ID",
+        "editor_role_ids": ["ALLY_OFFICER_ROLE_ID"],
+        "viewer_role_ids": []
+    }
+]
+'''
+```
+
+> Editor roles are checked first. If a user has both an editor role and a viewer role, they get editor access. The Discord bot must be added to **every** guild listed in the rules (Step 1 — Invite the bot).
 
 ### Map layers
 
@@ -296,6 +314,45 @@ npm run deploy --env f-guild
 
 # Also valid — bypasses npm scripts entirely
 npx wrangler deploy --env f-guild
+```
+
+---
+
+## Map Tiles
+
+The map uses a tiled image pyramid instead of loading a single large PNG. Tiles are pre-generated from `public/gamemap.png` and deployed as static assets.
+
+### Generating tiles
+
+Place your full game map image at `public/gamemap.png` (expected size: 10752 × 6144 pixels), then run:
+
+```bash
+npm run generate-tiles
+```
+
+This slices the image into 256×256 WebP tiles at three zoom levels:
+
+| Leaflet Zoom | File z | Source px/tile | Tiles |
+|---|---|---|---|
+| -2 | 0 | 1024 | 11 × 6 = 66 |
+| -1 | 1 | 512 | 21 × 12 = 252 |
+| 0 | 2 | 256 | 42 × 24 = 1008 |
+
+Output goes to `public/tiles/{z}/{x}/{y}.webp`. At Leaflet zoom levels 1–3, the browser upscales the z=2 tiles — no additional tile sets are needed.
+
+> **Requires [sharp](https://sharp.pixelplumbing.com/)** — already listed as a dev dependency. If `npm run generate-tiles` fails with a sharp error, run `npm install` first.
+
+### When to regenerate
+
+You only need to re-run `npm run generate-tiles` if the base map image changes (e.g. a new game map version). The generated tiles are committed to the repo and deployed as static assets, so other guild deployers don't need to run this step unless they want to use a different map image.
+
+### Tile coordinate convention
+
+The tiles use TMS (Tile Map Service) y-ordering: `y=0` is the **bottom** of the image. This is required for Leaflet's `L.CRS.Simple` coordinate system, which produces negative y values under the standard (non-TMS) convention. The `getTileUrl` function in `index.html` handles the mapping between Leaflet's internal coordinates and the file layout:
+
+```
+fileZ = coords.z + 2       // Leaflet zoom -2/-1/0 → file z 0/1/2
+fileY = -coords.y - 1      // Leaflet's negative y → non-negative file y
 ```
 
 ---
