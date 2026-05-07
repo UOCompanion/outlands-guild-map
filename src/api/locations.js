@@ -125,6 +125,20 @@ export async function handleCreateLocation(request, env) {
         // Get current locations
         const locations = await getLocations(env);
 
+        // Reject duplicate names within the same layer (case-insensitive)
+        const nameLower = body.name.trim().toLowerCase();
+        const duplicate = locations.find(
+            l => l.layer === body.layer && l.name.toLowerCase() === nameLower
+        );
+        if (duplicate) {
+            return new Response(JSON.stringify({
+                error: `A location named "${duplicate.name}" already exists on this layer`
+            }), {
+                status: 409,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
         // Create new location with generated ID
         const newLocation = {
             id: generateId(),

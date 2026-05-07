@@ -11,6 +11,9 @@ wrangler.toml
 # Dependencies
 node_modules/
 
+# Discord bot secrets
+discord-bot/.env
+
 # Generated map tiles — run `npm run generate-tiles` to recreate
 public/tiles/
 
